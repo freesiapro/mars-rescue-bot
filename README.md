@@ -87,6 +87,42 @@
 
 运行日志以 JSON 输出到 stdout，包含群 ID、用户 ID、消息 ID、消息类型等元数据，不包含用户名或消息正文。
 
+### 去重决策日志
+
+每条经过去重处理的消息都会额外输出一条 INFO 日志，消息固定为 `dedup decision`。它与原有的 `收到消息` 日志并列：前者说明检测结果，后者记录收到的更新，每条消息各一条，不重复输出。字段只有：
+
+| 字段 | 说明 |
+| --- | --- |
+| `chat_id` | 群 ID；缺少 chat 时为 0 |
+| `message_id` | 消息 ID；缺少消息时为 0 |
+| `msg_type` | `channel_forward`、`text`、`photo`、`video`、`animation`、`document`、`audio`、`sticker`、`voice`、`location`、`contact`、`caption` 或 `unknown`；频道转发优先于原始内容类型 |
+| `decision` | 本次处理结果，取值见下表 |
+| `user_id` | 发送者 ID，与 `收到消息` 日志一致；缺少发送者时为 0 |
+| `key_hash` | 可选。内容键的 8 位十六进制短指纹；没有内容键时省略 |
+
+`key_hash` 对文本直接使用现有 HMAC-SHA256 内容键的前 8 位；媒体和频道键本身不是 HMAC（包含 `file_unique_id` 或原频道 ID），因此使用 `HMAC-SHA256(DEDUP_SECRET, 完整内容键)` 后再取前 8 位，避免明文暴露这些标识。日志永远不包含完整内容键、消息正文、caption、用户名或姓名。
+
+| `decision` | 产生分支 |
+| --- | --- |
+| `alerted` | 本次出现完成配对，且提醒发送成功 |
+| `paired_silent` | 新内容首次记录，或本次出现进入等待配对、不提醒 |
+| `adjacent_repeat_exempt` | 与上一次出现的 `message_id` 相差不超过 5，按连续刷屏只计数、不提醒 |
+| `short_text_skipped` | 归一化后有效字符少于 4 个、纯 URL 或纯表情/符号 |
+| `repeated_char_skipped` | 归一化后所有字符都相同（如“哈哈哈哈”“666666”） |
+| `bot_ignored` | 发送者本身是 bot |
+| `forward_from_bot_ignored` | 保留值，当前不可达：只有发送者是 bot 才会被忽略；人类转发 bot 内容仍按普通内容去重 |
+| `ignored_user` | 发送者在忽略名单中 |
+| `disabled_chat` | 本群检测已关闭 |
+| `cooldown_suppressed` | 配对提醒被群冷却抑制，配对状态已回滚 |
+| `send_failed_rolled_back` | 配对提醒发送失败，配对状态已回滚 |
+| `no_content` | 没有可检测内容：空文本、纯空白，或支持的媒体缺少 `file_unique_id` |
+| `private_chat` | 私聊消息，直接忽略 |
+| `command` | 以 `/` 开头的命令文本 |
+| `unsupported_type` | 音频、贴纸、语音、位置、联系人等未参与检测的内容 |
+| `no_message` / `no_chat` / `no_sender` | Telegram 更新缺少消息、chat 或发送者，安全跳过 |
+| `processing_error` | 读取设置、忽略名单或写入去重数据时出错；原有错误日志仍会输出 |
+
+
 数据保留：默认保留 **180 天**，可通过 `DATA_RETENTION_DAYS` 调整。程序启动时执行一次清理，之后每 24 小时执行一次：
 
 - 删除 `created_at` 早于保留期的 `forward_logs`；
