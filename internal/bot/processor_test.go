@@ -68,11 +68,16 @@ func (r *replyRecorder) snapshot() []string {
 
 var occurrenceCountPattern = regexp.MustCompile(`第\s*[0-9]+\s*次|[0-9]+\s*次`)
 
-// assertNoOccurrenceCount 确认提醒文案里没有“第 N 次”“N 次”这类出现次数。
-func assertNoOccurrenceCount(t *testing.T, copy string) {
+// assertAlertCopyOmissions 确认提醒文案里没有出现次数，也没有旧版的配对说明。
+func assertAlertCopyOmissions(t *testing.T, copy string) {
 	t.Helper()
 	if match := occurrenceCountPattern.FindString(copy); match != "" {
 		t.Errorf("alert copy contains occurrence count %q: %q", match, copy)
+	}
+	for _, forbidden := range []string{"配对", "抵消"} {
+		if strings.Contains(copy, forbidden) {
+			t.Errorf("alert copy contains %q: %q", forbidden, copy)
+		}
 	}
 }
 
@@ -168,6 +173,7 @@ func TestProcessorTextReplyUsesPublicGroupLink(t *testing.T) {
 	if !strings.Contains(rec.messages[0], "https://t.me/public_group/10") {
 		t.Errorf("reply = %q, want public group link", rec.messages[0])
 	}
+	assertAlertCopyOmissions(t, rec.messages[0])
 }
 
 func TestProcessorReplyIncludesFirstSender(t *testing.T) {
@@ -185,12 +191,15 @@ func TestProcessorReplyIncludesFirstSender(t *testing.T) {
 		t.Fatalf("replies = %#v, want 1", rec.messages)
 	}
 	reply := rec.messages[0]
-	for _, want := range []string{"首发：Alice ·", "群里已经有过了", "配对抵消", "下次重新算一对", "回现场"} {
+	for _, want := range []string{
+		`🚨 火星救援！<a href="tg://user?id=8">Bob</a>，这条 Alice `,
+		` 就发过了，<a href="https://t.me/c/1234567890/10">回现场</a>`,
+	} {
 		if !strings.Contains(reply, want) {
 			t.Errorf("reply = %q, want containing %q", reply, want)
 		}
 	}
-	assertNoOccurrenceCount(t, reply)
+	assertAlertCopyOmissions(t, reply)
 
 	var record models.ForwardRecord
 	if err := db.First(&record).Error; err != nil {
@@ -221,10 +230,11 @@ func TestProcessorLegacyRecordShowsUnknownFirstSender(t *testing.T) {
 	if len(rec.messages) != 1 {
 		t.Fatalf("replies = %#v, want 1", rec.messages)
 	}
-	if !strings.Contains(rec.messages[0], "首发：已不可考（旧记录）") || !strings.Contains(rec.messages[0], "群里已经有过了") {
-		t.Errorf("reply = %q, want unknown first sender and short duplicate copy", rec.messages[0])
+	want := `🚨 火星救援！<a href="tg://user?id=8">Bob</a>，这条群里早就有人发过了`
+	if rec.messages[0] != want {
+		t.Errorf("reply = %q, want %q", rec.messages[0], want)
 	}
-	assertNoOccurrenceCount(t, rec.messages[0])
+	assertAlertCopyOmissions(t, rec.messages[0])
 }
 
 func TestProcessorBasicGroupReplyHasNoLink(t *testing.T) {
@@ -248,12 +258,18 @@ func TestProcessorBasicGroupReplyHasNoLink(t *testing.T) {
 	}
 
 	reply := rec.messages[0]
-	for _, want := range []string{"首发：Alice ·", "无消息链接", "群里已经有过了"} {
+	for _, want := range []string{
+		`🚨 火星救援！<a href="tg://user?id=2">Bob</a>，这条 Alice `,
+		" 就发过了",
+	} {
 		if !strings.Contains(reply, want) {
 			t.Errorf("reply = %q, want containing %q", reply, want)
 		}
 	}
-	assertNoOccurrenceCount(t, reply)
+	assertAlertCopyOmissions(t, reply)
+	if strings.Contains(reply, "回现场") {
+		t.Errorf("reply = %q, want no link text in a basic group", reply)
+	}
 	if strings.Contains(reply, "https://t.me") {
 		t.Errorf("reply = %q, want no message link in a basic group", reply)
 	}
@@ -265,153 +281,245 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 	p.names.Observe(&telebot.User{ID: 2, FirstName: "Bob"})
 	p.names.Observe(&telebot.User{ID: 3, FirstName: "<Eve&Co>"})
 
+	fixedNow := time.Date(2026, 11, 4, 18, 0, 0, 0, time.UTC)
 	created := time.Date(2026, 11, 4, 12, 30, 0, 0, time.UTC)
+	previousDay := time.Date(2026, 11, 3, 12, 30, 0, 0, time.UTC)
 	publicChat := &telebot.Chat{ID: testChatID, Type: telebot.ChatSuperGroup, Username: "public_group"}
 	basicChat := &telebot.Chat{ID: -123456, Type: telebot.ChatGroup}
+	link := `<a href="https://t.me/public_group/10">回现场</a>`
+	mentionBob := `<a href="tg://user?id=2">Bob</a>`
 
 	tests := []struct {
-		name     string
-		chat     *telebot.Chat
-		event    *duplicateEvent
-		mention  bool
-		wants    []string
-		notWants []string
+		name    string
+		chat    *telebot.Chat
+		event   *duplicateEvent
+		mention bool
+		now     time.Time
+		want    string
 	}{
 		{
-			name: "text with known sender and public link",
+			name: "text known sender with public link today",
 			chat: publicChat,
 			event: &duplicateEvent{
 				record: &models.ForwardRecord{
-					FirstSenderID: 1, FirstTargetMsgID: 10, ForwardCount: 2, CreatedAt: created,
+					FirstSenderID: 1, FirstTargetMsgID: 10, ForwardCount: 4, CreatedAt: created,
 				},
 				kind:   "text",
 				sender: &telebot.User{ID: 2, FirstName: "Bob"},
 			},
 			mention: true,
-			wants: []string{
-				"tg://user?id=2", "这段内容（忽略标点、大小写等差异）",
-				"群里已经有过了", "配对抵消", "下次重新算一对",
-				"首发：Alice", "2026-11-04 12:30", "https://t.me/public_group/10", "回现场",
-			},
-			notWants: []string{"这句话", "一字不差", "你是第", "最早由"},
+			want:    "🚨 火星救援！" + mentionBob + "，这条 Alice 12:30 就发过了，" + link,
 		},
 		{
-			name: "unknown first sender and time without link",
+			name: "text known sender with public link another day",
+			chat: publicChat,
+			event: &duplicateEvent{
+				record: &models.ForwardRecord{
+					FirstSenderID: 1, FirstTargetMsgID: 10, CreatedAt: previousDay,
+				},
+				kind:   "text",
+				sender: &telebot.User{ID: 2, FirstName: "Bob"},
+			},
+			want: "🚨 火星救援！Bob，这条 Alice 11-03 12:30 就发过了，" + link,
+		},
+		{
+			name: "text known sender without link",
 			chat: basicChat,
 			event: &duplicateEvent{
-				record: &models.ForwardRecord{FirstTargetMsgID: 10, ForwardCount: 4},
-				kind:   "text",
-				sender: &telebot.User{ID: 2, FirstName: "Bob"},
-			},
-			wants: []string{
-				"首发：已不可考（旧记录）", "时间未知", "无消息链接", "群里已经有过了",
-			},
-			notWants: []string{"最早由", "https://t.me", "首发者未知"},
-		},
-		{
-			name: "odd internal count still has no count copy",
-			chat: publicChat,
-			event: &duplicateEvent{
 				record: &models.ForwardRecord{
-					FirstSenderID: 1, FirstTargetMsgID: 10, ForwardCount: 3, CreatedAt: created,
+					FirstSenderID: 1, FirstTargetMsgID: 10, CreatedAt: created,
 				},
 				kind:   "text",
 				sender: &telebot.User{ID: 2, FirstName: "Bob"},
 			},
-			wants: []string{"群里已经有过了", "下次重新算一对"},
+			want: "🚨 火星救援！Bob，这条 Alice 12:30 就发过了",
 		},
 		{
-			name: "self repeat",
+			name: "unknown first sender ignores time and link",
+			chat: publicChat,
+			event: &duplicateEvent{
+				record: &models.ForwardRecord{FirstTargetMsgID: 10, ForwardCount: 4, CreatedAt: created},
+				kind:   "text",
+				sender: &telebot.User{ID: 2, FirstName: "Bob"},
+			},
+			want: "🚨 火星救援！Bob，这条群里早就有人发过了",
+		},
+		{
+			name: "unknown first sender uses media noun",
+			chat: publicChat,
+			event: &duplicateEvent{
+				record:       &models.ForwardRecord{FirstTargetMsgID: 10, CreatedAt: created},
+				kind:         "media",
+				mediaSubject: "这张图",
+				sender:       &telebot.User{ID: 2, FirstName: "Bob"},
+			},
+			want: "🚨 火星救援！Bob，这张图群里早就有人发过了",
+		},
+		{
+			name: "self repeat text with link",
 			chat: publicChat,
 			event: &duplicateEvent{
 				record: &models.ForwardRecord{
-					FirstSenderID: 2, FirstTargetMsgID: 10, ForwardCount: 2, CreatedAt: created,
+					FirstSenderID: 2, FirstTargetMsgID: 10, CreatedAt: created,
 				},
 				kind:   "text",
 				sender: &telebot.User{ID: 2, FirstName: "Bob"},
 			},
 			mention: true,
-			wants:   []string{"又是你", "首发：也是你", "tg://user?id=2", "群里已经有过了"},
+			want:    "🚨 火星救援！" + mentionBob + "，这条你自己 12:30 就发过了 😂 " + link,
 		},
 		{
-			name: "mention disabled",
-			chat: publicChat,
+			name: "self repeat text without link",
+			chat: basicChat,
 			event: &duplicateEvent{
 				record: &models.ForwardRecord{
-					FirstSenderID: 1, FirstTargetMsgID: 10, ForwardCount: 2, CreatedAt: created,
+					FirstSenderID: 2, FirstTargetMsgID: 10, CreatedAt: created,
 				},
 				kind:   "text",
 				sender: &telebot.User{ID: 2, FirstName: "Bob"},
 			},
-			wants:    []string{"🚨 Bob，火星救援！", "首发：Alice", "群里已经有过了"},
-			notWants: []string{"tg://user"},
+			want: "🚨 火星救援！Bob，这条你自己 12:30 就发过了 😂",
+		},
+		{
+			name: "self repeat uses media noun",
+			chat: publicChat,
+			event: &duplicateEvent{
+				record: &models.ForwardRecord{
+					FirstSenderID: 2, FirstTargetMsgID: 10, CreatedAt: created,
+				},
+				kind:         "media",
+				mediaSubject: "这段视频",
+				sender:       &telebot.User{ID: 2, FirstName: "Bob"},
+			},
+			want: "🚨 火星救援！Bob，这段视频你自己 12:30 就发过了 😂 " + link,
 		},
 		{
 			name: "channel forward",
 			chat: publicChat,
 			event: &duplicateEvent{
 				record: &models.ForwardRecord{
-					FirstSenderID: 1, FirstTargetMsgID: 10, ForwardCount: 2, CreatedAt: created,
+					FirstSenderID: 1, FirstTargetMsgID: 10, CreatedAt: created,
 				},
 				kind:   "channel",
 				sender: &telebot.User{ID: 2, FirstName: "Bob"},
 			},
-			wants: []string{"这条频道转发群里已经有过了", "首次转发：Alice"},
+			want: "🚨 火星救援！Bob，这条转发 Alice 12:30 就发过了，" + link,
 		},
 		{
-			name: "video subject",
+			name: "photo noun",
 			chat: publicChat,
 			event: &duplicateEvent{
 				record: &models.ForwardRecord{
-					FirstSenderID: 1, FirstTargetMsgID: 10, ForwardCount: 2, CreatedAt: created,
+					FirstSenderID: 1, FirstTargetMsgID: 10, CreatedAt: created,
+				},
+				kind:         "media",
+				mediaSubject: "这张图",
+				sender:       &telebot.User{ID: 2, FirstName: "Bob"},
+			},
+			want: "🚨 火星救援！Bob，这张图 Alice 12:30 就发过了，" + link,
+		},
+		{
+			name: "video noun",
+			chat: publicChat,
+			event: &duplicateEvent{
+				record: &models.ForwardRecord{
+					FirstSenderID: 1, FirstTargetMsgID: 10, CreatedAt: created,
 				},
 				kind:         "media",
 				mediaSubject: "这段视频",
 				sender:       &telebot.User{ID: 2, FirstName: "Bob"},
 			},
-			wants: []string{"这段视频群里已经有过了"},
+			want: "🚨 火星救援！Bob，这段视频 Alice 12:30 就发过了，" + link,
+		},
+		{
+			name: "animation noun",
+			chat: publicChat,
+			event: &duplicateEvent{
+				record: &models.ForwardRecord{
+					FirstSenderID: 1, FirstTargetMsgID: 10, CreatedAt: created,
+				},
+				kind:         "media",
+				mediaSubject: "这个动图",
+				sender:       &telebot.User{ID: 2, FirstName: "Bob"},
+			},
+			want: "🚨 火星救援！Bob，这个动图 Alice 12:30 就发过了，" + link,
+		},
+		{
+			name: "document noun",
+			chat: publicChat,
+			event: &duplicateEvent{
+				record: &models.ForwardRecord{
+					FirstSenderID: 1, FirstTargetMsgID: 10, CreatedAt: created,
+				},
+				kind:         "media",
+				mediaSubject: "这个文件",
+				sender:       &telebot.User{ID: 2, FirstName: "Bob"},
+			},
+			want: "🚨 火星救援！Bob，这个文件 Alice 12:30 就发过了，" + link,
+		},
+		{
+			name: "mention disabled uses display name",
+			chat: publicChat,
+			event: &duplicateEvent{
+				record: &models.ForwardRecord{
+					FirstSenderID: 1, FirstTargetMsgID: 10, CreatedAt: created,
+				},
+				kind:   "text",
+				sender: &telebot.User{ID: 2, FirstName: "Bob"},
+			},
+			want: "🚨 火星救援！Bob，这条 Alice 12:30 就发过了，" + link,
 		},
 		{
 			name: "unresolved first sender falls back to id",
 			chat: publicChat,
 			event: &duplicateEvent{
 				record: &models.ForwardRecord{
-					FirstSenderID: 9, FirstTargetMsgID: 10, ForwardCount: 2, CreatedAt: created,
+					FirstSenderID: 9, FirstTargetMsgID: 10, CreatedAt: created,
 				},
 				kind:   "text",
 				sender: &telebot.User{ID: 2, FirstName: "Bob"},
 			},
-			wants: []string{"首发：用户 9"},
+			want: "🚨 火星救援！Bob，这条 用户 9 12:30 就发过了，" + link,
 		},
 		{
 			name: "escapes first sender name",
 			chat: publicChat,
 			event: &duplicateEvent{
 				record: &models.ForwardRecord{
-					FirstSenderID: 3, FirstTargetMsgID: 10, ForwardCount: 2, CreatedAt: created,
+					FirstSenderID: 3, FirstTargetMsgID: 10, CreatedAt: created,
 				},
 				kind:   "text",
 				sender: &telebot.User{ID: 2, FirstName: "Bob"},
 			},
-			wants:    []string{"首发：&lt;Eve&amp;Co&gt;"},
-			notWants: []string{"首发：<Eve&Co>"},
+			want: "🚨 火星救援！Bob，这条 &lt;Eve&amp;Co&gt; 12:30 就发过了，" + link,
+		},
+		{
+			name: "escapes alerted person name",
+			chat: publicChat,
+			event: &duplicateEvent{
+				record: &models.ForwardRecord{
+					FirstSenderID: 1, FirstTargetMsgID: 10, CreatedAt: created,
+				},
+				kind:   "text",
+				sender: &telebot.User{ID: 2, FirstName: "<Bob&Co>"},
+			},
+			want: "🚨 火星救援！&lt;Bob&amp;Co&gt;，这条 Alice 12:30 就发过了，" + link,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			now := tt.now
+			if now.IsZero() {
+				now = fixedNow
+			}
+			p.now = func() time.Time { return now }
 			out := p.formatDuplicate(tt.chat, tt.event, tt.mention)
-			for _, want := range tt.wants {
-				if !strings.Contains(out, want) {
-					t.Errorf("formatDuplicate() = %q, want containing %q", out, want)
-				}
+			t.Logf("rendered alert: %s", out)
+			if out != tt.want {
+				t.Errorf("formatDuplicate() = %q, want %q", out, tt.want)
 			}
-			for _, notWant := range tt.notWants {
-				if strings.Contains(out, notWant) {
-					t.Errorf("formatDuplicate() = %q, must not contain %q", out, notWant)
-				}
-			}
-			assertNoOccurrenceCount(t, out)
+			assertAlertCopyOmissions(t, out)
 		})
 	}
 }
@@ -462,7 +570,10 @@ func TestProcessorSelfRepeatRepliesWithMention(t *testing.T) {
 		t.Fatalf("replies = %#v, want 1", rec.messages)
 	}
 	reply := rec.messages[0]
-	for _, want := range []string{"又是你", "首发：也是你", "tg://user?id=7", "&lt;A&amp;B&gt;", "群里已经有过了", "配对抵消", "下次重新算一对"} {
+	for _, want := range []string{
+		`🚨 火星救援！<a href="tg://user?id=7">&lt;A&amp;B&gt;</a>，这条你自己 `,
+		` 就发过了 😂 <a href="https://t.me/c/1234567890/10">回现场</a>`,
+	} {
 		if !strings.Contains(reply, want) {
 			t.Errorf("reply = %q, want containing %q", reply, want)
 		}
@@ -470,7 +581,7 @@ func TestProcessorSelfRepeatRepliesWithMention(t *testing.T) {
 	if strings.Contains(reply, "<A&B>") {
 		t.Errorf("reply contains unescaped name: %q", reply)
 	}
-	assertNoOccurrenceCount(t, reply)
+	assertAlertCopyOmissions(t, reply)
 
 	var record models.ForwardRecord
 	if err := db.First(&record).Error; err != nil {
@@ -609,6 +720,7 @@ func TestProcessorMentionOff(t *testing.T) {
 	if !strings.Contains(reply, "&lt;A&gt;") {
 		t.Errorf("reply should contain escaped display name: %q", reply)
 	}
+	assertAlertCopyOmissions(t, reply)
 }
 
 func TestProcessorSkipsCommands(t *testing.T) {
@@ -656,9 +768,15 @@ func TestProcessorChannelForwardDuplicate(t *testing.T) {
 	if len(rec.messages) != 1 {
 		t.Fatalf("replies = %#v, want 1", rec.messages)
 	}
-	if !strings.Contains(rec.messages[0], "这条频道转发") || !strings.Contains(rec.messages[0], "首次转发：A") {
-		t.Errorf("reply = %q, want channel-forward wording", rec.messages[0])
+	for _, want := range []string{
+		`🚨 火星救援！<a href="tg://user?id=8">B</a>，这条转发 A `,
+		` 就发过了，<a href="https://t.me/c/1234567890/10">回现场</a>`,
+	} {
+		if !strings.Contains(rec.messages[0], want) {
+			t.Errorf("reply = %q, want containing %q", rec.messages[0], want)
+		}
 	}
+	assertAlertCopyOmissions(t, rec.messages[0])
 
 	var record models.ForwardRecord
 	if err := db.First(&record).Error; err != nil {
@@ -725,10 +843,10 @@ func TestProcessorPairingAlertsEverySecondOccurrence(t *testing.T) {
 	}
 
 	for i, alert := range rec.messages {
-		if !strings.Contains(alert, "群里已经有过了") || !strings.Contains(alert, "配对抵消") {
-			t.Errorf("alert %d = %q, want duplicate pairing copy", i, alert)
+		if !strings.Contains(alert, "🚨 火星救援！") || !strings.Contains(alert, " 就发过了") {
+			t.Errorf("alert %d = %q, want casual duplicate copy", i, alert)
 		}
-		assertNoOccurrenceCount(t, alert)
+		assertAlertCopyOmissions(t, alert)
 	}
 }
 
@@ -772,9 +890,9 @@ func TestAlertCountExceedsTwo(t *testing.T) {
 		t.Fatalf("last alert count = %d, want > 2", alertCounts[len(alertCounts)-1])
 	}
 	for i, alert := range alertTexts {
-		assertNoOccurrenceCount(t, alert)
-		if !strings.Contains(alert, "群里已经有过了") {
-			t.Errorf("alert %d = %q, want duplicate copy", i, alert)
+		assertAlertCopyOmissions(t, alert)
+		if !strings.Contains(alert, "🚨 火星救援！") || !strings.Contains(alert, " 就发过了") {
+			t.Errorf("alert %d = %q, want casual duplicate copy", i, alert)
 		}
 	}
 
@@ -983,10 +1101,10 @@ func TestProcessorCooldownRevertAlertsOnNextOccurrence(t *testing.T) {
 	if len(rec.messages) != 2 {
 		t.Fatalf("replies after next occurrence = %#v, want 2", rec.messages)
 	}
-	if !strings.Contains(rec.messages[1], "群里已经有过了") {
-		t.Errorf("next alert = %q, want duplicate copy", rec.messages[1])
+	if !strings.Contains(rec.messages[1], "🚨 火星救援！") || !strings.Contains(rec.messages[1], " 就发过了") {
+		t.Errorf("next alert = %q, want casual duplicate copy", rec.messages[1])
 	}
-	assertNoOccurrenceCount(t, rec.messages[1])
+	assertAlertCopyOmissions(t, rec.messages[1])
 
 	if err := db.First(&record).Error; err != nil {
 		t.Fatalf("reload record after next occurrence: %v", err)
@@ -1246,7 +1364,7 @@ func TestProcessorMediaDuplicateByFileUniqueID(t *testing.T) {
 	}{
 		{
 			name:    "photo",
-			subject: "这张图片",
+			subject: "这张图",
 			build: func(msgID int, userID int64, uniqueID string) *telebot.Message {
 				msg := textMessage(testChatID, userID, "A", "", msgID)
 				msg.Photo = &telebot.Photo{File: telebot.File{UniqueID: uniqueID}}
@@ -1299,6 +1417,7 @@ func TestProcessorMediaDuplicateByFileUniqueID(t *testing.T) {
 			if !strings.Contains(rec.messages[0], tt.subject) {
 				t.Errorf("reply = %q, want media subject %q", rec.messages[0], tt.subject)
 			}
+			assertAlertCopyOmissions(t, rec.messages[0])
 			if strings.Contains(rec.messages[0], "这句话") {
 				t.Errorf("media reply must not talk about text: %q", rec.messages[0])
 			}
