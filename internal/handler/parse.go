@@ -21,7 +21,47 @@ var (
 	errCooldownRange = errors.New("冷却秒数需在 0 到 86400 之间")
 	errMentionUsage  = errors.New("用法：/mars_mention on|off")
 	errIgnoreUsage   = errors.New("请回复某个用户的消息，或提供用户 ID：/mars_ignore [user_id]")
+	errRankUsage     = errors.New("用法：/mars_rank [week|month|all]")
 )
+
+type rankPeriod string
+
+const (
+	rankPeriodWeek  rankPeriod = "week"
+	rankPeriodMonth rankPeriod = "month"
+	rankPeriodAll   rankPeriod = "all"
+)
+
+func (p rankPeriod) label() string {
+	switch p {
+	case rankPeriodMonth:
+		return "本月"
+	case rankPeriodAll:
+		return "总榜"
+	default:
+		return "本周"
+	}
+}
+
+// parseRankPeriod 解析 /mars_rank 的可选周期参数，缺省为本周。
+func parseRankPeriod(args []string) (rankPeriod, error) {
+	if len(args) == 0 {
+		return rankPeriodWeek, nil
+	}
+	if len(args) != 1 {
+		return "", errRankUsage
+	}
+	switch strings.ToLower(strings.TrimSpace(args[0])) {
+	case string(rankPeriodWeek):
+		return rankPeriodWeek, nil
+	case string(rankPeriodMonth):
+		return rankPeriodMonth, nil
+	case string(rankPeriodAll):
+		return rankPeriodAll, nil
+	default:
+		return "", errRankUsage
+	}
+}
 
 // parseCooldownSeconds 解析 /mars_cooldown 的单个参数。
 func parseCooldownSeconds(args []string) (int, error) {
@@ -74,4 +114,13 @@ func weekStart(now time.Time, loc *time.Location) time.Time {
 	midnight := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
 	offset := (int(local.Weekday()) + 6) % 7 // Monday=0 ... Sunday=6
 	return midnight.AddDate(0, 0, -offset)
+}
+
+// monthStart 返回 now 所在自然月（1 日 00:00）的起点。
+func monthStart(now time.Time, loc *time.Location) time.Time {
+	if loc == nil {
+		loc = time.UTC
+	}
+	local := now.In(loc)
+	return time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, loc)
 }

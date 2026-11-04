@@ -102,6 +102,90 @@ func TestParseIgnoreTarget(t *testing.T) {
 	}
 }
 
+func TestParseRankPeriod(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		want    rankPeriod
+		wantErr bool
+	}{
+		{"default week", nil, rankPeriodWeek, false},
+		{"week", []string{"week"}, rankPeriodWeek, false},
+		{"month", []string{"month"}, rankPeriodMonth, false},
+		{"all", []string{"all"}, rankPeriodAll, false},
+		{"uppercase", []string{"MONTH"}, rankPeriodMonth, false},
+		{"trim spaces", []string{" all "}, rankPeriodAll, false},
+		{"invalid", []string{"year"}, "", true},
+		{"extra args", []string{"week", "month"}, "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseRankPeriod(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("parseRankPeriod() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr && !errors.Is(err, errRankUsage) {
+				t.Errorf("error = %v, want %v", err, errRankUsage)
+			}
+			if got != tt.want {
+				t.Errorf("period = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRankPeriodLabel(t *testing.T) {
+	tests := map[rankPeriod]string{
+		rankPeriodWeek:  "本周",
+		rankPeriodMonth: "本月",
+		rankPeriodAll:   "总榜",
+	}
+	for period, want := range tests {
+		if got := period.label(); got != want {
+			t.Errorf("%q.label() = %q, want %q", period, got, want)
+		}
+	}
+}
+
+func TestMonthStart(t *testing.T) {
+	loc := time.FixedZone("CST", 8*60*60)
+
+	tests := []struct {
+		name string
+		now  time.Time
+		want time.Time
+	}{
+		{
+			name: "mid month",
+			now:  time.Date(2026, 11, 18, 15, 30, 0, 0, loc),
+			want: time.Date(2026, 11, 1, 0, 0, 0, 0, loc),
+		},
+		{
+			name: "first day",
+			now:  time.Date(2026, 11, 1, 0, 0, 0, 0, loc),
+			want: time.Date(2026, 11, 1, 0, 0, 0, 0, loc),
+		},
+		{
+			name: "last day",
+			now:  time.Date(2026, 11, 30, 23, 59, 0, 0, loc),
+			want: time.Date(2026, 11, 1, 0, 0, 0, 0, loc),
+		},
+		{
+			name: "input in another timezone",
+			now:  time.Date(2026, 10, 31, 20, 0, 0, 0, time.UTC),
+			want: time.Date(2026, 11, 1, 0, 0, 0, 0, loc),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := monthStart(tt.now, loc)
+			if !got.Equal(tt.want) {
+				t.Errorf("monthStart() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestWeekStart(t *testing.T) {
 	loc := time.FixedZone("CST", 8*60*60)
 

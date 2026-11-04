@@ -260,4 +260,89 @@ func TestGetTopRescuersCountsEveryOccurrence(t *testing.T) {
 			t.Errorf("stats row %+v contains names; leaderboard must be ID-only", s)
 		}
 	}
+
+	allStats, err := r.GetTopRescuers(chatID, time.Time{}, 10)
+	if err != nil {
+		t.Fatalf("GetTopRescuers(all) error = %v", err)
+	}
+	if len(allStats) != 3 || allStats[0].UserID != 1 || allStats[0].RescueCount != 4 {
+		t.Errorf("all-time stats = %+v, want user 1 with 4 occurrences", allStats)
+	}
+}
+
+func TestCountUserOccurrencesAndLastOccurrence(t *testing.T) {
+	r := setupRepo(t)
+	const chatID = int64(-100)
+	now := time.Now()
+
+	rec := &models.ForwardRecord{ChatID: chatID, ContentKey: "k", FirstTargetMsgID: 1}
+	if err := r.db.Create(rec).Error; err != nil {
+		t.Fatalf("create record: %v", err)
+	}
+	otherChatRec := &models.ForwardRecord{ChatID: -200, ContentKey: "k", FirstTargetMsgID: 2}
+	if err := r.db.Create(otherChatRec).Error; err != nil {
+		t.Fatalf("create other chat record: %v", err)
+	}
+
+	for _, log := range []models.ForwardLog{
+		{RecordID: rec.ID, SenderID: 7, TargetMsgID: 1, CreatedAt: now.Add(-10 * 24 * time.Hour)},
+		{RecordID: rec.ID, SenderID: 7, TargetMsgID: 2, CreatedAt: now.Add(-2 * time.Hour)},
+		{RecordID: rec.ID, SenderID: 7, TargetMsgID: 3, CreatedAt: now.Add(-30 * time.Minute)},
+		{RecordID: rec.ID, SenderID: 8, TargetMsgID: 4, CreatedAt: now.Add(-time.Hour)},
+		{RecordID: otherChatRec.ID, SenderID: 7, TargetMsgID: 5, CreatedAt: now.Add(-time.Hour)},
+	} {
+		if err := r.db.Create(&log).Error; err != nil {
+			t.Fatalf("create log: %v", err)
+		}
+	}
+
+	weekCount, err := r.CountUserOccurrences(chatID, 7, now.Add(-24*time.Hour))
+	if err != nil {
+		t.Fatalf("CountUserOccurrences(week) error = %v", err)
+	}
+	if weekCount != 2 {
+		t.Errorf("week count = %d, want 2", weekCount)
+	}
+
+	monthCount, err := r.CountUserOccurrences(chatID, 7, now.Add(-30*24*time.Hour))
+	if err != nil {
+		t.Fatalf("CountUserOccurrences(month) error = %v", err)
+	}
+	if monthCount != 3 {
+		t.Errorf("month count = %d, want 3", monthCount)
+	}
+
+	totalCount, err := r.CountUserOccurrences(chatID, 7, time.Time{})
+	if err != nil {
+		t.Fatalf("CountUserOccurrences(all) error = %v", err)
+	}
+	if totalCount != 3 {
+		t.Errorf("total count = %d, want 3", totalCount)
+	}
+
+	last, has, err := r.LastUserOccurrence(chatID, 7)
+	if err != nil {
+		t.Fatalf("LastUserOccurrence() error = %v", err)
+	}
+	if !has {
+		t.Fatal("LastUserOccurrence() has = false, want true")
+	}
+	if diff := now.Sub(last); diff < 29*time.Minute || diff > 31*time.Minute {
+		t.Errorf("last = %v, want about 30 minutes ago", last)
+	}
+
+	noneCount, err := r.CountUserOccurrences(chatID, 9, time.Time{})
+	if err != nil {
+		t.Fatalf("CountUserOccurrences(none) error = %v", err)
+	}
+	if noneCount != 0 {
+		t.Errorf("unknown user count = %d, want 0", noneCount)
+	}
+	_, has, err = r.LastUserOccurrence(chatID, 9)
+	if err != nil {
+		t.Fatalf("LastUserOccurrence(none) error = %v", err)
+	}
+	if has {
+		t.Error("LastUserOccurrence(none) has = true, want false")
+	}
 }

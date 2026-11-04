@@ -332,13 +332,16 @@ func formatMention(user *telebot.User) string {
 	return fmt.Sprintf("<a href=\"tg://user?id=%d\">%s</a>", user.ID, formatDisplayName(user))
 }
 
-func FormatRankList(stats []models.UserStats, chat *telebot.Chat, chatTitle string, resolver *names.Resolver) string {
+func FormatRankList(stats []models.UserStats, chat *telebot.Chat, chatTitle, periodLabel string, resolver *names.Resolver) string {
+	if periodLabel == "" {
+		periodLabel = "本周"
+	}
 	if len(stats) == 0 {
-		return "📊 本周暂无火星记录"
+		return fmt.Sprintf("📊 %s暂无火星记录", periodLabel)
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("🏆 <b>%s</b> 火星指数榜（本周）\n\n", html.EscapeString(chatTitle)))
+	sb.WriteString(fmt.Sprintf("🏆 <b>%s</b> 火星指数榜（%s）\n\n", html.EscapeString(chatTitle), periodLabel))
 	for i, s := range stats {
 		name := resolver.Name(chat, s.UserID)
 		if name == "" {
@@ -357,4 +360,20 @@ func FormatRankList(stats []models.UserStats, chat *telebot.Chat, chatTitle stri
 		sb.WriteString(fmt.Sprintf("%s%d. %s — %d 次\n", medal, i+1, name, s.RescueCount))
 	}
 	return sb.String()
+}
+
+// FormatUserStats 展示某用户在本群的本周、本月、累计出现次数与最近一次时间。
+func FormatUserStats(weekCount, monthCount, totalCount int64, last time.Time, loc *time.Location) string {
+	if totalCount == 0 {
+		return "📊 你在本群还没有火星记录。"
+	}
+	if loc == nil {
+		loc = time.UTC
+	}
+	lastText := "未知"
+	if !last.IsZero() {
+		lastText = last.In(loc).Format("2006-01-02 15:04")
+	}
+	return fmt.Sprintf("📊 <b>你的火星指数</b>\n本周：%d 次\n本月：%d 次\n累计：%d 次\n最近一次：%s",
+		weekCount, monthCount, totalCount, html.EscapeString(lastText))
 }
