@@ -7,6 +7,7 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/joho/godotenv v1.5.1
 	golang.org/x/net v0.0.0-20220520000938-2e3eb7b945c2
+	golang.org/x/text v0.20.0
 	gopkg.in/telebot.v3 v3.3.8
 	gorm.io/gorm v1.31.1
 )
@@ -19,7 +20,6 @@ require (
 	github.com/mattn/go-isatty v0.0.17 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	golang.org/x/sys v0.7.0 // indirect
-	golang.org/x/text v0.20.0 // indirect
 	modernc.org/libc v1.22.5 // indirect
 	modernc.org/mathutil v1.5.0 // indirect
 	modernc.org/memory v1.5.0 // indirect
