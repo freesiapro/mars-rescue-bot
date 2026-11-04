@@ -60,7 +60,7 @@ func main() {
 	r := repo.New(db)
 	resolver := names.New(bot)
 
-	cmdHandler := handler.NewCommandHandler(r, handler.NewAdminChecker(bot), resolver)
+	cmdHandler := handler.NewCommandHandler(r, handler.NewAdminChecker(bot), resolver, config.DedupSecret)
 	cmdHandler.Register(bot)
 
 	processor := botengine.NewProcessor(r, config.DedupSecret, resolver, config.StatsLocation())

@@ -22,9 +22,10 @@ type CommandHandler struct {
 	now           func() time.Time
 	statsLoc      *time.Location
 	retentionDays int
+	dedupSecret   string
 }
 
-func NewCommandHandler(r *repo.Repo, admins *AdminChecker, resolver *names.Resolver) *CommandHandler {
+func NewCommandHandler(r *repo.Repo, admins *AdminChecker, resolver *names.Resolver, dedupSecret string) *CommandHandler {
 	if resolver == nil {
 		resolver = names.New(nil)
 	}
@@ -39,11 +40,13 @@ func NewCommandHandler(r *repo.Repo, admins *AdminChecker, resolver *names.Resol
 		now:           time.Now,
 		statsLoc:      config.StatsLocation(),
 		retentionDays: retentionDays,
+		dedupSecret:   dedupSecret,
 	}
 }
 
 func (h *CommandHandler) Register(bot *telebot.Bot) {
 	bot.Handle("/start", h.handleStart)
+	bot.Handle("/hyw", h.handleHYW)
 	bot.Handle("/mars_rank", h.handleRank)
 	bot.Handle("/mars_me", h.handleMe)
 	bot.Handle("/mars_privacy", h.handlePrivacy)
@@ -77,6 +80,7 @@ func (h *CommandHandler) handleStart(c telebot.Context) error {
 			"同一内容连续刷屏（消息 ID 相差 ≤5）只计数，不提醒。\n" +
 			"配对只影响提醒，排行榜每次出现都照常计数。\n\n" +
 			"命令:\n" +
+			"/hyw - 回复一条消息，查它有没有被火星小本本记上（只读）\n" +
 			"/mars_rank [week|month|all] - 查看本周/本月/总火星指数榜\n" +
 			"/mars_me - 查看自己的火星指数\n" +
 			"/mars_privacy - 查看隐私与数据说明\n" +
