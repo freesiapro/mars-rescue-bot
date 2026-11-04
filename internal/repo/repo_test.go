@@ -32,6 +32,9 @@ func TestFindOrCreateRecord(t *testing.T) {
 	if rec.ID == 0 {
 		t.Error("first call: record ID not populated")
 	}
+	if rec.FirstSenderID != 42 {
+		t.Errorf("first call: FirstSenderID = %d, want 42", rec.FirstSenderID)
+	}
 
 	var firstLogs int64
 	if err := r.db.Model(&models.ForwardLog{}).Where("record_id = ?", rec.ID).Count(&firstLogs).Error; err != nil {
@@ -60,6 +63,9 @@ func TestFindOrCreateRecord(t *testing.T) {
 	}
 	if again.FirstTargetMsgID != 10 {
 		t.Errorf("second call: FirstTargetMsgID = %d, want original 10", again.FirstTargetMsgID)
+	}
+	if again.FirstSenderID != 42 {
+		t.Errorf("second call: FirstSenderID = %d, want original 42", again.FirstSenderID)
 	}
 
 	var logs int64

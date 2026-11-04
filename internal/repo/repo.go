@@ -28,6 +28,7 @@ func (r *Repo) FindOrCreateRecord(chatID int64, key string, targetMsgID int, sen
 		ChatID:           chatID,
 		ContentKey:       key,
 		FirstTargetMsgID: targetMsgID,
+		FirstSenderID:    senderID,
 		PendingPair:      &pending,
 	}
 	isNew := false
