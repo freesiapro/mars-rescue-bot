@@ -1328,6 +1328,127 @@ func TestProcessorSkipsTextBelowMinimumContent(t *testing.T) {
 	}
 }
 
+func TestProcessorSkipsRepeatedSingleRuneText(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+	}{
+		{"chinese catchphrase", "草草草草草草"},
+		{"digits", "6666666"},
+		{"latin", "aaaaaaaaaa"},
+		{"longer catchphrase", "哈哈哈哈哈哈哈"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, _, db := setupProcessor(t)
+			rec := &replyRecorder{}
+
+			for i := 0; i < 2; i++ {
+				if err := p.ProcessMessage(textMessage(testChatID, 1, "A", tt.text, 10+i), "trace", rec.reply); err != nil {
+					t.Fatalf("ProcessMessage() error = %v", err)
+				}
+			}
+			if len(rec.messages) != 0 {
+				t.Errorf("replies = %#v, want none", rec.messages)
+			}
+
+			var records, logs, stats int64
+			db.Model(&models.ForwardRecord{}).Count(&records)
+			db.Model(&models.ForwardLog{}).Count(&logs)
+			db.Model(&models.UserStats{}).Count(&stats)
+			if records != 0 || logs != 0 || stats != 0 {
+				t.Errorf("records=%d logs=%d stats=%d, want 0/0/0", records, logs, stats)
+			}
+		})
+	}
+}
+
+func TestProcessorKeepsRepeatedRuneWithOtherContent(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+	}{
+		{"suffix breaks the run", "草草草草草草我"},
+		{"url makes it normal text", "草草草草 https://example.com/a/b"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, _, db := setupProcessor(t)
+			rec := &replyRecorder{}
+
+			for i := 0; i < 2; i++ {
+				if err := p.ProcessMessage(textMessage(testChatID, 1, "A", tt.text, 10+i), "trace", rec.reply); err != nil {
+					t.Fatalf("ProcessMessage() error = %v", err)
+				}
+			}
+			if len(rec.messages) != 1 {
+				t.Fatalf("replies = %#v, want 1", rec.messages)
+			}
+
+			var records, logs int64
+			db.Model(&models.ForwardRecord{}).Count(&records)
+			db.Model(&models.ForwardLog{}).Count(&logs)
+			if records != 1 || logs != 2 {
+				t.Errorf("records=%d logs=%d, want 1/2", records, logs)
+			}
+		})
+	}
+}
+
+func TestProcessorRepeatedRuneForwardIsSkipped(t *testing.T) {
+	p, _, db := setupProcessor(t)
+	rec := &replyRecorder{}
+
+	first := forwardedTextMessage(10, forwardingUserID, "草草草草草草")
+	first.OriginalSender = forwardOriginBotUser()
+	second := forwardedTextMessage(11, forwardingUserID+1, "草草草草草草")
+	second.OriginalSender = forwardOriginBotUser()
+	processForwardMessages(t, p, rec, first, second)
+
+	if len(rec.messages) != 0 {
+		t.Errorf("replies = %#v, want none", rec.messages)
+	}
+	var records, logs, stats int64
+	db.Model(&models.ForwardRecord{}).Count(&records)
+	db.Model(&models.ForwardLog{}).Count(&logs)
+	db.Model(&models.UserStats{}).Count(&stats)
+	if records != 0 || logs != 0 || stats != 0 {
+		t.Errorf("records=%d logs=%d stats=%d, want 0/0/0", records, logs, stats)
+	}
+}
+
+func TestProcessorKeepsFourRuneTextBoundary(t *testing.T) {
+	tests := []struct {
+		name       string
+		text       string
+		wantAlerts int
+		wantRecord int64
+	}{
+		{"four runes", "marc", 1, 1},
+		{"three runes", "mar", 0, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, _, db := setupProcessor(t)
+			rec := &replyRecorder{}
+
+			for i := 0; i < 2; i++ {
+				if err := p.ProcessMessage(textMessage(testChatID, 1, "A", tt.text, 10+i), "trace", rec.reply); err != nil {
+					t.Fatalf("ProcessMessage() error = %v", err)
+				}
+			}
+			if len(rec.messages) != tt.wantAlerts {
+				t.Errorf("replies = %#v, want %d", rec.messages, tt.wantAlerts)
+			}
+			var records int64
+			db.Model(&models.ForwardRecord{}).Count(&records)
+			if records != tt.wantRecord {
+				t.Errorf("records = %d, want %d", records, tt.wantRecord)
+			}
+		})
+	}
+}
+
 func TestProcessorIgnoresBotMessages(t *testing.T) {
 	p, _, db := setupProcessor(t)
 	rec := &replyRecorder{}

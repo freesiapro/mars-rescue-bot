@@ -202,6 +202,10 @@ func (p *Processor) tryTextDuplicate(msg *telebot.Message) (*duplicateEvent, err
 	if !textnorm.HasContent(normalized, textnorm.DefaultMinRunes) {
 		return nil, nil
 	}
+	// 同一字符刷屏（哈哈哈哈、666666）是口头禅，不记录也不计数。
+	if textnorm.IsRepeatedSingleRune(normalized) {
+		return nil, nil
+	}
 
 	key := textContentKey(p.dedupSecret, normalized)
 	return p.logOccurrence(msg, key, "text")
