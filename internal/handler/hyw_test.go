@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"gopkg.in/telebot.v3"
+	"gopkg.in/telebot.v4"
 	"gorm.io/gorm"
 	"mars-rescue-bot/internal/bot"
 	"mars-rescue-bot/internal/models"
@@ -238,6 +238,49 @@ func TestHYWRecordedText(t *testing.T) {
 		t.Errorf("reply = %q, must not contain message text", reply)
 	}
 	t.Logf("hyw reply: %s", reply)
+}
+
+func TestHYWRecordedRichMessage(t *testing.T) {
+	h, r, _ := setupHYW(t)
+	plain := hywTextMessage(hywTestChatID, 1, "hyw rich text", 10)
+	rich := hywTextMessage(hywTestChatID, 2, "", 16)
+	const richJSON = `{
+		"message_id": 16,
+		"rich_message": {
+			"blocks": [
+				{"type": "paragraph", "text": [{"type": "bold", "text": "hyw rich"}, " ", {"type": "italic", "text": "text"}]}
+			]
+		}
+	}`
+	if err := json.Unmarshal([]byte(richJSON), &rich); err != nil {
+		t.Fatalf("decode rich message: %v", err)
+	}
+	seedHYWMessage(t, r, plain, 0)
+	seedHYWMessage(t, r, rich, 0)
+
+	ctx, _ := runHYW(t, h, hywTestChatID, rich)
+	reply := assertHYWReplyToTarget(t, ctx, rich)
+	for _, want := range []string{
+		"📒 记着呢：文本 · 指纹 ",
+		"累计 2 次",
+		"决策：alerted（这次提醒发出去了）",
+	} {
+		if !strings.Contains(reply, want) {
+			t.Errorf("reply = %q, want containing %q", reply, want)
+		}
+	}
+	content := bot.AnalyzeMessageContent(rich, hywTestSecret)
+	plainContent := bot.AnalyzeMessageContent(plain, hywTestSecret)
+	if content.Key != plainContent.Key {
+		t.Errorf("rich key = %q, want plain key %q", content.Key, plainContent.Key)
+	}
+	if !strings.Contains(reply, content.Hash) {
+		t.Errorf("reply = %q, want 8-char hash %q", reply, content.Hash)
+	}
+	if strings.Contains(reply, content.Key) || strings.Contains(reply, "hyw rich text") {
+		t.Errorf("reply = %q, must not contain full key or message text", reply)
+	}
+	t.Logf("hyw rich reply: %s", reply)
 }
 
 func TestHYWFirstOccurrenceDecision(t *testing.T) {

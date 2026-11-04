@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"gopkg.in/telebot.v3"
+	"gopkg.in/telebot.v4"
 )
 
 // 每条消息最终只产生一个 dedup decision 值。新增分支时必须同步更新 README。
@@ -118,6 +118,9 @@ func messageType(msg *telebot.Message) string {
 	if isChannelForward(msg) {
 		return "channel_forward"
 	}
+	if msg.RichMessage != nil {
+		return "rich_message"
+	}
 	switch {
 	case msg.Photo != nil:
 		return "photo"
@@ -180,7 +183,7 @@ func messageHasContent(msg *telebot.Message) bool {
 	if msg == nil {
 		return false
 	}
-	return msg.Text != "" || msg.Caption != "" ||
+	return strings.TrimSpace(msg.Text) != "" || strings.TrimSpace(msg.Caption) != "" || msg.RichMessage != nil ||
 		msg.Photo != nil || msg.Video != nil || msg.Animation != nil || msg.Document != nil ||
 		msg.Audio != nil || msg.Sticker != nil || msg.Voice != nil ||
 		msg.Location != nil || msg.Contact != nil

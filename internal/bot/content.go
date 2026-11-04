@@ -3,7 +3,7 @@ package bot
 import (
 	"strings"
 
-	"gopkg.in/telebot.v3"
+	"gopkg.in/telebot.v4"
 	"mars-rescue-bot/internal/textnorm"
 )
 
@@ -46,17 +46,14 @@ func AnalyzeMessageContent(msg *telebot.Message, secret string) MessageContent {
 		return MessageContent{SkipDecision: DecisionNoContent}
 	}
 	// 音频不在支持范围；没有文本时按内容判断是未支持类型还是空消息。
-	if msg.Text == "" || msg.Audio != nil {
+	text := messagePlainText(msg)
+	if msg.Audio != nil || text == "" {
 		if messageHasContent(msg) {
 			return MessageContent{SkipDecision: DecisionUnsupportedType}
 		}
 		return MessageContent{SkipDecision: DecisionNoContent}
 	}
 
-	text := strings.TrimSpace(msg.Text)
-	if text == "" {
-		return MessageContent{SkipDecision: DecisionNoContent}
-	}
 	if strings.HasPrefix(text, "/") {
 		return MessageContent{SkipDecision: DecisionCommand}
 	}

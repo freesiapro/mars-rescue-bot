@@ -8,7 +8,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	golang.org/x/net v0.0.0-20220520000938-2e3eb7b945c2
 	golang.org/x/text v0.20.0
-	gopkg.in/telebot.v3 v3.3.8
+	gopkg.in/telebot.v4 v4.0.0-beta.10
 	gorm.io/gorm v1.31.1
 )
 
