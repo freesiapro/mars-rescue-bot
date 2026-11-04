@@ -77,6 +77,10 @@ func (p *Processor) Handle(c telebot.Context) error {
 // ProcessMessage 执行去重与回复逻辑。
 // reply 由调用方提供，便于在纯 Go 测试中捕获输出。
 func (p *Processor) ProcessMessage(msg *telebot.Message, traceID string, reply func(string) error) error {
+	return p.processMessage(msg, traceID, reply)
+}
+
+func (p *Processor) processMessage(msg *telebot.Message, traceID string, reply func(string) error) error {
 	rec := newDecisionRecorder(p.logger, p.dedupSecret, msg)
 	defer rec.log()
 

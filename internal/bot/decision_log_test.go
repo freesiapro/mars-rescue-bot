@@ -15,14 +15,16 @@ import (
 )
 
 type capturedDecision struct {
-	Level     string `json:"level"`
-	Msg       string `json:"msg"`
-	ChatID    int64  `json:"chat_id"`
-	MessageID int    `json:"message_id"`
-	MsgType   string `json:"msg_type"`
-	Decision  string `json:"decision"`
-	UserID    int64  `json:"user_id"`
-	KeyHash   string `json:"key_hash"`
+	Level          string   `json:"level"`
+	Msg            string   `json:"msg"`
+	ChatID         int64    `json:"chat_id"`
+	MessageID      int      `json:"message_id"`
+	MsgType        string   `json:"msg_type"`
+	Decision       string   `json:"decision"`
+	UserID         int64    `json:"user_id"`
+	KeyHash        string   `json:"key_hash"`
+	PresentFields  []string `json:"present_fields"`
+	RichBlockTypes []string `json:"rich_block_types"`
 }
 
 func captureDecisionLog(t *testing.T, p *Processor) *bytes.Buffer {
@@ -274,6 +276,84 @@ func TestDecisionLogRichMessage(t *testing.T) {
 	}
 	if len(replies.snapshot()) != 0 {
 		t.Errorf("replies = %#v, want none on first occurrence", replies.snapshot())
+	}
+}
+
+func TestDecisionLogPresentFieldsForNoContent(t *testing.T) {
+	msg := textMessage(testChatID, 7, "A", "", 95)
+	p, _, _ := setupProcessor(t)
+	buf := captureDecisionLog(t, p)
+	replies := &replyRecorder{}
+
+	if err := p.ProcessMessage(msg, "trace", replies.reply); err != nil {
+		t.Fatalf("ProcessMessage() error = %v", err)
+	}
+	lines := readDecisions(t, buf)
+	if len(lines) != 1 {
+		t.Fatalf("decision lines = %d, want 1", len(lines))
+	}
+	line := lines[0]
+	if line.Decision != DecisionNoContent {
+		t.Errorf("decision = %q, want %q", line.Decision, DecisionNoContent)
+	}
+	wantFields := []string{"chat", "from", "message_id"}
+	if strings.Join(line.PresentFields, ",") != strings.Join(wantFields, ",") {
+		t.Errorf("present_fields = %#v, want %#v", line.PresentFields, wantFields)
+	}
+	if len(line.RichBlockTypes) != 0 {
+		t.Errorf("rich_block_types = %#v, want none", line.RichBlockTypes)
+	}
+	if strings.Contains(buf.String(), "nested") || strings.Contains(buf.String(), "A\"") {
+		t.Errorf("decision log leaked field values: %s", buf.String())
+	}
+}
+
+func TestDecisionLogPresentFieldsForUnsupportedRichMessage(t *testing.T) {
+	raw := []byte(`{
+		"message_id": 96,
+		"chat": {"id": -1001234567890, "type": "supergroup"},
+		"from": {"id": 7, "is_bot": false, "first_name": "A"},
+		"rich_message": {"blocks": [
+			{"type": "divider"},
+			{"type": "future_block", "blocks": [{"type": "paragraph", "text": "   "}]}
+		]}
+	}`)
+	var msg telebot.Message
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		t.Fatalf("decode message: %v", err)
+	}
+	if msg.RichMessage == nil {
+		t.Fatal("RichMessage = nil, want decoded rich message")
+	}
+	p, _, _ := setupProcessor(t)
+	buf := captureDecisionLog(t, p)
+	replies := &replyRecorder{}
+
+	if err := p.ProcessMessage(&msg, "trace", replies.reply); err != nil {
+		t.Fatalf("ProcessMessage() error = %v", err)
+	}
+	lines := readDecisions(t, buf)
+	if len(lines) != 1 {
+		t.Fatalf("decision lines = %d, want 1", len(lines))
+	}
+	line := lines[0]
+	if line.Decision != DecisionUnsupportedType {
+		t.Errorf("decision = %q, want %q", line.Decision, DecisionUnsupportedType)
+	}
+	if line.MsgType != "rich_message" {
+		t.Errorf("msg_type = %q, want rich_message", line.MsgType)
+	}
+	for _, want := range []string{"chat", "from", "message_id", "rich_message"} {
+		if !containsString(line.PresentFields, want) {
+			t.Errorf("present_fields = %#v, want containing %q", line.PresentFields, want)
+		}
+	}
+	wantTypes := []string{"divider", "future_block", "paragraph"}
+	if strings.Join(line.RichBlockTypes, ",") != strings.Join(wantTypes, ",") {
+		t.Errorf("rich_block_types = %#v, want %#v", line.RichBlockTypes, wantTypes)
+	}
+	if strings.Contains(buf.String(), "   ") {
+		t.Errorf("decision log leaked whitespace text: %s", buf.String())
 	}
 }
 

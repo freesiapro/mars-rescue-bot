@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -205,6 +206,77 @@ func assertHYWReplyToTarget(t *testing.T, ctx *fakeHYWContext, target *telebot.M
 		t.Error("AllowWithoutReply = false, want true")
 	}
 	return ctx.sent[0].text
+}
+
+func TestHYWRecordedRealRichSample(t *testing.T) {
+	h, r, _ := setupHYW(t)
+	data, err := os.ReadFile("../bot/testdata/rich_message_sample.json")
+	if err != nil {
+		t.Fatalf("read rich sample: %v", err)
+	}
+	var target telebot.Message
+	if err := json.Unmarshal(data, &target); err != nil {
+		t.Fatalf("decode rich sample: %v", err)
+	}
+	if target.RichMessage == nil {
+		t.Fatal("RichMessage = nil, want decoded sample")
+	}
+	target.Chat = &telebot.Chat{ID: hywTestChatID, Type: telebot.ChatSuperGroup}
+	seedHYWMessage(t, r, &target, 0)
+
+	ctx, _ := runHYW(t, h, hywTestChatID, &target)
+	reply := assertHYWReplyToTarget(t, ctx, &target)
+	if !strings.Contains(reply, "📒 记着呢：文本 · 指纹 ") {
+		t.Errorf("reply = %q, want rich sample deduped as text", reply)
+	}
+	content := bot.AnalyzeMessageContent(&target, hywTestSecret)
+	if !strings.Contains(reply, content.Hash) {
+		t.Errorf("reply = %q, want 8-char hash %q", reply, content.Hash)
+	}
+	if strings.Contains(reply, "Introduction: Qwen") || strings.Contains(reply, content.Key) {
+		t.Errorf("reply = %q, must not contain sample text or full key", reply)
+	}
+	t.Logf("hyw real rich reply: %s", reply)
+}
+
+func TestHYWReplyToBotRichMessage(t *testing.T) {
+	h, _, _ := setupHYW(t)
+	data, err := os.ReadFile("../bot/testdata/rich_message_sample.json")
+	if err != nil {
+		t.Fatalf("read rich sample: %v", err)
+	}
+	var target telebot.Message
+	if err := json.Unmarshal(data, &target); err != nil {
+		t.Fatalf("decode rich sample: %v", err)
+	}
+	target.Sender.IsBot = true
+
+	ctx, _ := runHYW(t, h, hywTestChatID, &target)
+	reply := assertHYWReplyToTarget(t, ctx, &target)
+	if !strings.Contains(reply, "bot 发的") {
+		t.Errorf("reply = %q, want bot explanation before content analysis", reply)
+	}
+	t.Logf("hyw bot rich reply: %s", reply)
+}
+
+func TestHYWNoContentIncludesPresentFields(t *testing.T) {
+	h, _, _ := setupHYW(t)
+	target := hywTextMessage(hywTestChatID, 1, "", 77)
+
+	ctx, _ := runHYW(t, h, hywTestChatID, target)
+	reply := assertHYWReplyToTarget(t, ctx, target)
+	if !strings.Contains(reply, "没内容") {
+		t.Errorf("reply = %q, want no-content explanation", reply)
+	}
+	for _, want := range []string{"字段：", "message_id", "chat", "from"} {
+		if !strings.Contains(reply, want) {
+			t.Errorf("reply = %q, want containing %q", reply, want)
+		}
+	}
+	if strings.Contains(reply, "HYW") {
+		t.Errorf("reply = %q, must not contain field values", reply)
+	}
+	t.Logf("hyw no-content reply: %s", reply)
 }
 
 func TestHYWRecordedText(t *testing.T) {

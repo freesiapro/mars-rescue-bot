@@ -15,7 +15,7 @@ func TraceMiddleware(next telebot.HandlerFunc) telebot.HandlerFunc {
 
 		msg := c.Message()
 		if msg != nil {
-			logMessageReceived(traceID, msg)
+			LogMessageReceived(traceID, msg)
 		} else {
 			// Message() 为 nil 的分支（如 inline query、无关联 message 的 callback 等）
 			logUpdateReceived(traceID, c)
@@ -34,7 +34,10 @@ func TraceMiddleware(next telebot.HandlerFunc) telebot.HandlerFunc {
 	}
 }
 
-func logMessageReceived(traceID string, msg *telebot.Message) {
+// LogMessageReceived 输出与 TraceMiddleware 相同的“收到消息”日志。
+// 富文本消息经 MiddlewarePoller 归一化后同样走 TraceMiddleware，
+// 不再需要单独调用。
+func LogMessageReceived(traceID string, msg *telebot.Message) {
 	chatID := int64(0)
 	chatType := ""
 	if msg.Chat != nil {
@@ -50,6 +53,10 @@ func logMessageReceived(traceID string, msg *telebot.Message) {
 	// 判断消息类型，丰富日志信息
 	msgType := "text"
 	switch {
+	case msg.RichMessage != nil:
+		// 富文本消息也可能是转发；类型上仍优先标成 rich_message，
+		// forward 字段会单独说明转发来源。
+		msgType = "rich_message"
 	case msg.IsForwarded():
 		msgType = "forward"
 	case msg.Photo != nil:

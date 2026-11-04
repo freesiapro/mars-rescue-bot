@@ -44,7 +44,7 @@ func (h *CommandHandler) handleHYW(c telebot.Context) error {
 
 	content := bot.AnalyzeMessageContent(target, h.dedupSecret)
 	if content.Key == "" {
-		return sendHYWReply(c, target, hywSkipReason(content.SkipDecision))
+		return sendHYWReply(c, target, hywSkipReason(content.SkipDecision, bot.MessagePresentFields(target)))
 	}
 
 	record, found, err := h.repo.FindRecordByKey(msg.Chat.ID, content.Key)
@@ -73,7 +73,7 @@ func sendHYWReply(c telebot.Context, target *telebot.Message, text string) error
 	})
 }
 
-func hywSkipReason(decision string) string {
+func hywSkipReason(decision string, presentFields []string) string {
 	switch decision {
 	case bot.DecisionBotIgnored:
 		return "📒 这是 bot 发的，火星小本本不收。"
@@ -84,12 +84,21 @@ func hywSkipReason(decision string) string {
 	case bot.DecisionRepeatedCharSkipped:
 		return "📒 这条是同一个字复读，太敷衍，不记。"
 	case bot.DecisionNoContent:
-		return "📒 这条没内容，记不上。"
+		return withPresentFields("📒 这条没内容，记不上。", presentFields)
 	case bot.DecisionUnsupportedType:
-		return "📒 这类消息不参与去重，没记。"
+		return withPresentFields("📒 这类消息不参与去重，没记。", presentFields)
 	default:
 		return "📒 这条不参与去重，没记。"
 	}
+}
+
+// withPresentFields 只在没有内容时补充字段名，方便现场判断是字段缺失、
+// 未解析还是确实为空。只列字段名，绝不输出字段值或正文。
+func withPresentFields(base string, presentFields []string) string {
+	if len(presentFields) == 0 {
+		return base
+	}
+	return base + "\n字段：" + strings.Join(presentFields, ", ")
 }
 
 func hywTargetRecorded(record *models.ForwardRecord, logs []models.ForwardLog, targetMsgID int) bool {
