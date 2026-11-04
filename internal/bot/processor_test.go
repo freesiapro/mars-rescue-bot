@@ -924,3 +924,128 @@ func TestProcessorIgnoresBotMessages(t *testing.T) {
 		t.Errorf("records = %d, want 0", records)
 	}
 }
+
+func TestProcessorMediaDuplicateByFileUniqueID(t *testing.T) {
+	tests := []struct {
+		name  string
+		build func(msgID int, userID int64, uniqueID string) *telebot.Message
+	}{
+		{
+			name: "photo",
+			build: func(msgID int, userID int64, uniqueID string) *telebot.Message {
+				msg := textMessage(testChatID, userID, "A", "", msgID)
+				msg.Photo = &telebot.Photo{File: telebot.File{UniqueID: uniqueID}}
+				return msg
+			},
+		},
+		{
+			name: "video",
+			build: func(msgID int, userID int64, uniqueID string) *telebot.Message {
+				msg := textMessage(testChatID, userID, "A", "", msgID)
+				msg.Video = &telebot.Video{File: telebot.File{UniqueID: uniqueID}}
+				return msg
+			},
+		},
+		{
+			name: "animation",
+			build: func(msgID int, userID int64, uniqueID string) *telebot.Message {
+				msg := textMessage(testChatID, userID, "A", "", msgID)
+				msg.Animation = &telebot.Animation{File: telebot.File{UniqueID: uniqueID}}
+				return msg
+			},
+		},
+		{
+			name: "document",
+			build: func(msgID int, userID int64, uniqueID string) *telebot.Message {
+				msg := textMessage(testChatID, userID, "A", "", msgID)
+				msg.Document = &telebot.Document{File: telebot.File{UniqueID: uniqueID}}
+				return msg
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, _, db := setupProcessor(t)
+			rec := &replyRecorder{}
+
+			if err := p.ProcessMessage(tt.build(10, 1, "same-unique-id"), "trace", rec.reply); err != nil {
+				t.Fatalf("first ProcessMessage() error = %v", err)
+			}
+			if err := p.ProcessMessage(tt.build(11, 2, "same-unique-id"), "trace", rec.reply); err != nil {
+				t.Fatalf("second ProcessMessage() error = %v", err)
+			}
+			if len(rec.messages) != 1 {
+				t.Fatalf("replies = %#v, want 1", rec.messages)
+			}
+			if !strings.Contains(rec.messages[0], "这条内容") {
+				t.Errorf("reply = %q, want media wording", rec.messages[0])
+			}
+
+			var record models.ForwardRecord
+			if err := db.First(&record).Error; err != nil {
+				t.Fatalf("load record: %v", err)
+			}
+			wantKey := "media:" + tt.name + ":same-unique-id"
+			if record.ContentKey != wantKey {
+				t.Errorf("ContentKey = %q, want %q", record.ContentKey, wantKey)
+			}
+			if record.ForwardCount != 2 {
+				t.Errorf("ForwardCount = %d, want 2", record.ForwardCount)
+			}
+		})
+	}
+}
+
+func TestProcessorDifferentMediaUniqueIDIsNotDuplicate(t *testing.T) {
+	p, _, db := setupProcessor(t)
+	rec := &replyRecorder{}
+
+	for i, uniqueID := range []string{"photo-a", "photo-b"} {
+		msg := textMessage(testChatID, 1, "A", "", 10+i)
+		msg.Photo = &telebot.Photo{File: telebot.File{UniqueID: uniqueID}}
+		if err := p.ProcessMessage(msg, "trace", rec.reply); err != nil {
+			t.Fatalf("ProcessMessage() error = %v", err)
+		}
+	}
+
+	if len(rec.messages) != 0 {
+		t.Errorf("replies = %#v, want none", rec.messages)
+	}
+	var records int64
+	if err := db.Model(&models.ForwardRecord{}).Count(&records).Error; err != nil {
+		t.Fatalf("count records: %v", err)
+	}
+	if records != 2 {
+		t.Errorf("records = %d, want 2", records)
+	}
+}
+
+func TestProcessorMediaSkipsForwardedAndMissingUniqueID(t *testing.T) {
+	p, _, db := setupProcessor(t)
+	rec := &replyRecorder{}
+
+	forwarded := textMessage(testChatID, 1, "A", "", 10)
+	forwarded.Photo = &telebot.Photo{File: telebot.File{UniqueID: "forwarded-photo"}}
+	forwarded.OriginalSender = &telebot.User{ID: 77}
+
+	missingID := textMessage(testChatID, 1, "A", "", 11)
+	missingID.Photo = &telebot.Photo{}
+
+	for _, msg := range []*telebot.Message{forwarded, forwarded, missingID, missingID} {
+		if err := p.ProcessMessage(msg, "trace", rec.reply); err != nil {
+			t.Fatalf("ProcessMessage() error = %v", err)
+		}
+	}
+
+	if len(rec.messages) != 0 {
+		t.Errorf("replies = %#v, want none", rec.messages)
+	}
+	var records int64
+	if err := db.Model(&models.ForwardRecord{}).Count(&records).Error; err != nil {
+		t.Fatalf("count records: %v", err)
+	}
+	if records != 0 {
+		t.Errorf("records = %d, want 0", records)
+	}
+}

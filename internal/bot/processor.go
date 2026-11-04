@@ -97,6 +97,7 @@ func (p *Processor) ProcessMessage(msg *telebot.Message, traceID string, reply f
 
 	for _, try := range []func(*telebot.Message) (*duplicateEvent, error){
 		p.tryChannelForward,
+		p.tryMediaDuplicate,
 		p.tryTextDuplicate,
 	} {
 		event, err := try(msg)
@@ -124,27 +125,39 @@ func (p *Processor) tryChannelForward(msg *telebot.Message) (*duplicateEvent, er
 		return nil, nil
 	}
 
-	if err := p.repo.UpsertUserStats(msg.Sender.ID, msg.Sender.Username, msg.Sender.FirstName); err != nil {
-		return nil, err
-	}
-
 	key := fmt.Sprintf("channel:%d:%d", msg.OriginalChat.ID, msg.OriginalMessageID)
-	rec, isNew, err := p.repo.FindOrCreateRecord(msg.Chat.ID, key, msg.ID, msg.Sender.ID)
-	if err != nil || isNew {
-		return nil, err
-	}
-
-	decision, err := p.repo.DecideAndLog(rec, msg.ID, msg.Sender.ID)
-	if err != nil {
-		return nil, err
-	}
-	if !decision.Alert {
-		return nil, nil
-	}
-	return &duplicateEvent{record: rec, kind: "channel", sender: msg.Sender, seq: decision.Seq}, nil
+	return p.logOccurrence(msg, key, "channel")
 }
 
-// === 场景 B：纯文本重复 ===
+// === 场景 B：媒体重复 ===
+// 图片取最大尺寸（telebot 已选择）的 file_unique_id；视频、动画、文件直接取其
+// file_unique_id。不下载文件，也不保存文件内容。频道转发的媒体走频道分支。
+func (p *Processor) tryMediaDuplicate(msg *telebot.Message) (*duplicateEvent, error) {
+	if msg.IsForwarded() {
+		return nil, nil
+	}
+	key, ok := mediaContentKey(msg)
+	if !ok {
+		return nil, nil
+	}
+	return p.logOccurrence(msg, key, "media")
+}
+
+func mediaContentKey(msg *telebot.Message) (string, bool) {
+	switch {
+	case msg.Photo != nil && msg.Photo.UniqueID != "":
+		return "media:photo:" + msg.Photo.UniqueID, true
+	case msg.Video != nil && msg.Video.UniqueID != "":
+		return "media:video:" + msg.Video.UniqueID, true
+	case msg.Animation != nil && msg.Animation.UniqueID != "":
+		return "media:animation:" + msg.Animation.UniqueID, true
+	case msg.Document != nil && msg.Document.UniqueID != "":
+		return "media:document:" + msg.Document.UniqueID, true
+	}
+	return "", false
+}
+
+// === 场景 C：纯文本重复 ===
 func (p *Processor) tryTextDuplicate(msg *telebot.Message) (*duplicateEvent, error) {
 	if msg.IsForwarded() || msg.Text == "" || msg.Photo != nil || msg.Video != nil || msg.Audio != nil || msg.Document != nil {
 		return nil, nil
@@ -161,11 +174,16 @@ func (p *Processor) tryTextDuplicate(msg *telebot.Message) (*duplicateEvent, err
 		return nil, nil
 	}
 
+	key := textContentKey(p.dedupSecret, normalized)
+	return p.logOccurrence(msg, key, "text")
+}
+
+// logOccurrence 写入本次出现并在需要时返回提醒事件。
+func (p *Processor) logOccurrence(msg *telebot.Message, key, kind string) (*duplicateEvent, error) {
 	if err := p.repo.UpsertUserStats(msg.Sender.ID, msg.Sender.Username, msg.Sender.FirstName); err != nil {
 		return nil, err
 	}
 
-	key := textContentKey(p.dedupSecret, normalized)
 	rec, isNew, err := p.repo.FindOrCreateRecord(msg.Chat.ID, key, msg.ID, msg.Sender.ID)
 	if err != nil || isNew {
 		return nil, err
@@ -179,7 +197,7 @@ func (p *Processor) tryTextDuplicate(msg *telebot.Message) (*duplicateEvent, err
 	if !decision.Alert {
 		return nil, nil
 	}
-	return &duplicateEvent{record: rec, kind: "text", sender: msg.Sender, seq: decision.Seq}, nil
+	return &duplicateEvent{record: rec, kind: kind, sender: msg.Sender, seq: decision.Seq}, nil
 }
 
 func (p *Processor) emitReply(msg *telebot.Message, event *duplicateEvent, settings *models.ChatSettings, traceID string, reply func(string) error) error {
@@ -250,6 +268,9 @@ func (p *Processor) formatDuplicate(chat *telebot.Chat, event *duplicateEvent, m
 	case "channel":
 		return fmt.Sprintf("🚨 %s 火星救援！\n这条消息最早由 %s 于 %s 转发进群，这是第 %d 次出现。%s",
 			who, firstSender, firstSeen, count, linkText)
+	case "media":
+		return fmt.Sprintf("🚨 %s 火星救援！\n这条内容最早由 %s 于 %s 发出，这是第 %d 次出现，你是第 %d 个没看聊天记录的。%s",
+			who, firstSender, firstSeen, count, count, linkText)
 	default:
 		return fmt.Sprintf("🚨 %s 火星救援！\n这句话最早由 %s 于 %s 发出，这是第 %d 次出现，你是第 %d 个没看聊天记录的。%s",
 			who, firstSender, firstSeen, count, count, linkText)
