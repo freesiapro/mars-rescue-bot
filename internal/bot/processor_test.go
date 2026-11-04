@@ -13,6 +13,7 @@ import (
 	"mars-rescue-bot/internal/names"
 	"mars-rescue-bot/internal/repo"
 	"mars-rescue-bot/internal/testutil"
+	"mars-rescue-bot/internal/textnorm"
 )
 
 const testChatID = int64(-1001234567890)
@@ -41,6 +42,11 @@ func textMessage(chatID, userID int64, firstName, text string, msgID int) *teleb
 	}
 }
 
+// textKeyFor 按处理器相同的步骤生成内容键，供构造历史数据的测试使用。
+func textKeyFor(secret, text string) string {
+	return textContentKey(secret, textnorm.Normalize(text))
+}
+
 type replyRecorder struct {
 	mu       sync.Mutex
 	messages []string
@@ -61,8 +67,8 @@ func (r *replyRecorder) snapshot() []string {
 
 func TestTextKeyUsesHMACAndNoPlaintext(t *testing.T) {
 	key := textContentKey("secret", "hello mars")
-	if !strings.HasPrefix(key, "text:hmac:") {
-		t.Errorf("key = %q, want text:hmac: prefix", key)
+	if !strings.HasPrefix(key, "text:v2:") {
+		t.Errorf("key = %q, want text:v2: prefix", key)
 	}
 	if strings.Contains(key, "hello") || strings.Contains(key, "mars") {
 		t.Errorf("key = %q, must not contain plaintext", key)
@@ -190,7 +196,7 @@ func TestProcessorLegacyRecordShowsUnknownFirstSender(t *testing.T) {
 	// 旧记录：没有 first_sender_id，计数为 1（奇数）表示还有一次未配对的出现。
 	if err := db.Create(&models.ForwardRecord{
 		ChatID:           testChatID,
-		ContentKey:       textContentKey("test-secret", "legacy sender"),
+		ContentKey:       textKeyFor("test-secret", "legacy sender"),
 		ForwardCount:     1,
 		FirstTargetMsgID: 5,
 	}).Error; err != nil {
@@ -267,8 +273,8 @@ func TestProcessorSelfRepeatRepliesWithMention(t *testing.T) {
 	if err := db.First(&record).Error; err != nil {
 		t.Fatalf("load record: %v", err)
 	}
-	if !strings.HasPrefix(record.ContentKey, "text:hmac:") {
-		t.Errorf("ContentKey = %q, want text:hmac: prefix", record.ContentKey)
+	if !strings.HasPrefix(record.ContentKey, "text:v2:") {
+		t.Errorf("ContentKey = %q, want text:v2: prefix", record.ContentKey)
 	}
 	if strings.Contains(record.ContentKey, "hello mars") {
 		t.Errorf("ContentKey = %q, must not contain plaintext", record.ContentKey)
@@ -736,7 +742,7 @@ func TestProcessorLegacyRecordsDerivePendingFromParity(t *testing.T) {
 	// 旧数据：ForwardCount=2 表示两次出现已经配过对，下一次应开启新的一对（静默）。
 	if err := db.Create(&models.ForwardRecord{
 		ChatID:           testChatID,
-		ContentKey:       textContentKey("test-secret", "legacy-even"),
+		ContentKey:       textKeyFor("test-secret", "legacy-even"),
 		ForwardCount:     2,
 		FirstTargetMsgID: 5,
 	}).Error; err != nil {
@@ -745,7 +751,7 @@ func TestProcessorLegacyRecordsDerivePendingFromParity(t *testing.T) {
 	// 旧数据：ForwardCount=1 表示还有一次未配对的出现，下一次应提醒。
 	if err := db.Create(&models.ForwardRecord{
 		ChatID:           testChatID,
-		ContentKey:       textContentKey("test-secret", "legacy-odd"),
+		ContentKey:       textKeyFor("test-secret", "legacy-odd"),
 		ForwardCount:     1,
 		FirstTargetMsgID: 6,
 	}).Error; err != nil {
@@ -753,7 +759,7 @@ func TestProcessorLegacyRecordsDerivePendingFromParity(t *testing.T) {
 	}
 
 	var legacy models.ForwardRecord
-	if err := db.Where("content_key = ?", textContentKey("test-secret", "legacy-even")).First(&legacy).Error; err != nil {
+	if err := db.Where("content_key = ?", textKeyFor("test-secret", "legacy-even")).First(&legacy).Error; err != nil {
 		t.Fatalf("load legacy record: %v", err)
 	}
 	if legacy.PendingPair != nil {
@@ -781,5 +787,140 @@ func TestProcessorLegacyRecordsDerivePendingFromParity(t *testing.T) {
 	}
 	if len(rec.messages) != 2 {
 		t.Errorf("replies after legacy-odd second = %#v, want 2", rec.messages)
+	}
+}
+
+func TestProcessorNormalizesTextBeforeMatching(t *testing.T) {
+	tests := []struct {
+		name  string
+		first string
+		again string
+	}{
+		{
+			name:  "width case whitespace and punctuation",
+			first: "Ｈｅｌｌｏ，   ＭＡＲＳ！",
+			again: "hello mars",
+		},
+		{
+			name:  "url tracking params",
+			first: "请看这个 https://example.com/post?utm_source=a",
+			again: "请看这个 https://example.com/post?utm_source=b",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, _, db := setupProcessor(t)
+			rec := &replyRecorder{}
+
+			if err := p.ProcessMessage(textMessage(testChatID, 1, "A", tt.first, 10), "trace", rec.reply); err != nil {
+				t.Fatalf("first ProcessMessage() error = %v", err)
+			}
+			if err := p.ProcessMessage(textMessage(testChatID, 2, "B", tt.again, 11), "trace", rec.reply); err != nil {
+				t.Fatalf("second ProcessMessage() error = %v", err)
+			}
+			if len(rec.messages) != 1 {
+				t.Fatalf("replies = %#v, want 1 for normalized duplicate", rec.messages)
+			}
+
+			var records int64
+			if err := db.Model(&models.ForwardRecord{}).Count(&records).Error; err != nil {
+				t.Fatalf("count records: %v", err)
+			}
+			if records != 1 {
+				t.Errorf("records = %d, want 1", records)
+			}
+		})
+	}
+}
+
+func TestProcessorCollapsesButDoesNotRemoveSpaces(t *testing.T) {
+	p, _, db := setupProcessor(t)
+	rec := &replyRecorder{}
+
+	if err := p.ProcessMessage(textMessage(testChatID, 1, "A", "foo bar", 10), "trace", rec.reply); err != nil {
+		t.Fatalf("first ProcessMessage() error = %v", err)
+	}
+	if err := p.ProcessMessage(textMessage(testChatID, 2, "B", "foobar", 11), "trace", rec.reply); err != nil {
+		t.Fatalf("second ProcessMessage() error = %v", err)
+	}
+	if err := p.ProcessMessage(textMessage(testChatID, 3, "C", "foo   bar", 12), "trace", rec.reply); err != nil {
+		t.Fatalf("third ProcessMessage() error = %v", err)
+	}
+
+	if len(rec.messages) != 1 {
+		t.Fatalf("replies = %#v, want 1", rec.messages)
+	}
+
+	var records int64
+	if err := db.Model(&models.ForwardRecord{}).Count(&records).Error; err != nil {
+		t.Fatalf("count records: %v", err)
+	}
+	if records != 2 {
+		t.Errorf("records = %d, want 2 (space kept, runs collapsed)", records)
+	}
+}
+
+func TestProcessorSkipsTextBelowMinimumContent(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+	}{
+		{"too short", "hi"},
+		{"pure url", "https://example.com/a/b"},
+		{"url with too little text", "看 https://example.com/a/b"},
+		{"emoji only", "👍👍👍👍"},
+		{"punctuation only", "！！！！"},
+		{"command with bot suffix", "/mars_rank@some_bot"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, _, db := setupProcessor(t)
+			rec := &replyRecorder{}
+
+			for i := 0; i < 2; i++ {
+				if err := p.ProcessMessage(textMessage(testChatID, 1, "A", tt.text, 10+i), "trace", rec.reply); err != nil {
+					t.Fatalf("ProcessMessage() error = %v", err)
+				}
+			}
+			if len(rec.messages) != 0 {
+				t.Errorf("replies = %#v, want none", rec.messages)
+			}
+
+			var records, logs, stats int64
+			db.Model(&models.ForwardRecord{}).Count(&records)
+			db.Model(&models.ForwardLog{}).Count(&logs)
+			db.Model(&models.UserStats{}).Count(&stats)
+			if records != 0 || logs != 0 || stats != 0 {
+				t.Errorf("records=%d logs=%d stats=%d, want 0/0/0", records, logs, stats)
+			}
+		})
+	}
+}
+
+func TestProcessorIgnoresBotMessages(t *testing.T) {
+	p, _, db := setupProcessor(t)
+	rec := &replyRecorder{}
+
+	newBotMessage := func(id int) *telebot.Message {
+		msg := textMessage(testChatID, 99, "Bot", "hello mars", id)
+		msg.Sender.IsBot = true
+		return msg
+	}
+	if err := p.ProcessMessage(newBotMessage(10), "trace", rec.reply); err != nil {
+		t.Fatalf("first ProcessMessage() error = %v", err)
+	}
+	if err := p.ProcessMessage(newBotMessage(11), "trace", rec.reply); err != nil {
+		t.Fatalf("second ProcessMessage() error = %v", err)
+	}
+
+	if len(rec.messages) != 0 {
+		t.Errorf("replies = %#v, want none", rec.messages)
+	}
+	var records int64
+	if err := db.Model(&models.ForwardRecord{}).Count(&records).Error; err != nil {
+		t.Fatalf("count records: %v", err)
+	}
+	if records != 0 {
+		t.Errorf("records = %d, want 0", records)
 	}
 }

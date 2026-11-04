@@ -15,6 +15,7 @@ import (
 	"mars-rescue-bot/internal/models"
 	"mars-rescue-bot/internal/names"
 	"mars-rescue-bot/internal/repo"
+	"mars-rescue-bot/internal/textnorm"
 )
 
 // Processor 处理群内重复内容检测与回复。
@@ -68,6 +69,10 @@ func (p *Processor) ProcessMessage(msg *telebot.Message, traceID string, reply f
 	// 匿名管理员或频道发言可能没有 Sender，后续逻辑依赖其身份，安全跳过。
 	if msg.Sender == nil {
 		slog.Debug("skip message without sender", "chat_id", msg.Chat.ID)
+		return nil
+	}
+	// 机器人（包括本 bot）自己发送的消息不参与去重，避免互相触发。
+	if msg.Sender.IsBot {
 		return nil
 	}
 	p.names.Observe(msg.Sender)
@@ -145,7 +150,14 @@ func (p *Processor) tryTextDuplicate(msg *telebot.Message) (*duplicateEvent, err
 		return nil, nil
 	}
 	// 命令不该进入去重逻辑（未注册的命令会被 telebot 交给 OnText）。
-	if strings.HasPrefix(strings.TrimSpace(msg.Text), "/") {
+	text := strings.TrimSpace(msg.Text)
+	if text == "" || strings.HasPrefix(text, "/") {
+		return nil, nil
+	}
+
+	normalized := textnorm.Normalize(text)
+	// 短消息、纯 URL、纯表情/符号不参与文本去重。
+	if !textnorm.HasContent(normalized, textnorm.DefaultMinRunes) {
 		return nil, nil
 	}
 
@@ -153,7 +165,7 @@ func (p *Processor) tryTextDuplicate(msg *telebot.Message) (*duplicateEvent, err
 		return nil, err
 	}
 
-	key := textContentKey(p.dedupSecret, msg.Text)
+	key := textContentKey(p.dedupSecret, normalized)
 	rec, isNew, err := p.repo.FindOrCreateRecord(msg.Chat.ID, key, msg.ID, msg.Sender.ID)
 	if err != nil || isNew {
 		return nil, err
@@ -245,11 +257,12 @@ func (p *Processor) formatDuplicate(chat *telebot.Chat, event *duplicateEvent, m
 }
 
 // textContentKey 生成带密钥的文本内容键。
-// 只存储 HMAC-SHA256 十六进制结果，不存储原文。
+// text 必须是 textnorm.Normalize 的结果；只存储 HMAC-SHA256 十六进制结果，不存储原文。
+// v2 前缀用于区分旧版原始文本哈希，升级后旧 key 不再与新 key 匹配。
 func textContentKey(secret, text string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(text))
-	return "text:hmac:" + hex.EncodeToString(mac.Sum(nil))
+	return "text:v2:" + hex.EncodeToString(mac.Sum(nil))
 }
 
 // messageLink 生成消息链接。
