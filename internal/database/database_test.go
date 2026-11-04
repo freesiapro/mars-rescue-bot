@@ -117,6 +117,14 @@ func TestAutoMigrateKeepsLegacyRowsPendingNull(t *testing.T) {
 	if firstSenderID != 0 {
 		t.Errorf("legacy first_sender_id = %d, want 0", firstSenderID)
 	}
+
+	var lastOccurrenceMsgID sql.NullInt64
+	if err := db.Raw(`SELECT last_occurrence_msg_id FROM forward_records WHERE content_key = ?`, "legacy").Scan(&lastOccurrenceMsgID).Error; err != nil {
+		t.Fatalf("read migrated last_occurrence_msg_id: %v", err)
+	}
+	if lastOccurrenceMsgID.Valid {
+		t.Errorf("legacy last_occurrence_msg_id = %d, want NULL", lastOccurrenceMsgID.Int64)
+	}
 }
 
 // TestClearLegacyUserNames 用旧表结构建库并写入姓名，模拟升级流程：

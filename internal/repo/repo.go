@@ -24,12 +24,14 @@ func New(db *gorm.DB) *Repo {
 // 都计入排行榜”的统计口径；后续出现由 DecideAndLog 负责计数和写日志。
 func (r *Repo) FindOrCreateRecord(chatID int64, key string, targetMsgID int, senderID int64) (*models.ForwardRecord, bool, error) {
 	pending := true
+	lastMsgID := targetMsgID
 	rec := models.ForwardRecord{
-		ChatID:           chatID,
-		ContentKey:       key,
-		FirstTargetMsgID: targetMsgID,
-		FirstSenderID:    senderID,
-		PendingPair:      &pending,
+		ChatID:              chatID,
+		ContentKey:          key,
+		FirstTargetMsgID:    targetMsgID,
+		FirstSenderID:       senderID,
+		PendingPair:         &pending,
+		LastOccurrenceMsgID: &lastMsgID,
 	}
 	isNew := false
 
@@ -95,11 +97,13 @@ func (r *Repo) IncrementAndLog(rec *models.ForwardRecord, targetMsgID int, sende
 type PairDecision struct {
 	// Alert 为 true 表示本次出现与此前待配对的出现组成一对，应发送火星提醒。
 	Alert bool
+	// Adjacent 为 true 表示本次是同一波连续刷屏，只计数，不参与配对。
+	Adjacent bool
 	// Seq 是本次出现之后的 forward_count，用于发送失败/被冷却抑制时的条件回滚。
 	Seq int64
 }
 
-// DecideAndLog 原子地完成三件事：翻转 (chat, key) 的待配对状态、自增计数、写入本次出现的日志。
+// DecideAndLog 原子地完成三件事：更新配对状态、自增计数、写入本次出现的日志。
 //
 // 配对规则：第 1 次出现只记录并置为待配对；第 2 次与其配对并发提醒；
 // 第 3 次重新开启新的一对但不提醒；第 4 次再配对提醒，依此类推。
@@ -114,16 +118,76 @@ type PairDecision struct {
 // 旧逻辑下第 N 次出现对应 ForwardCount=N，所以用计数奇偶推导待配对状态：
 // 奇数表示还有一次未配对的出现，偶数表示上一次已经配过对。这样无需回填数据，
 // 旧记录也能从正确的配对位置继续。
-func (r *Repo) DecideAndLog(rec *models.ForwardRecord, targetMsgID int, senderID int64) (*PairDecision, error) {
+//
+// 相邻刷屏：本次消息 ID 与上一次出现的消息 ID 相差不超过 adjacentGap 时，
+// 视为同一波连续刷屏。此时只自增计数、写日志、更新 last_occurrence_msg_id，
+// 不翻转 pending_pair，也不提醒，因此连续刷屏不会消耗配对位置。
+// 旧行新增的 last_occurrence_msg_id 为 NULL，第一次出现一定走普通分支并显式
+// 写回 pending_pair；相邻分支遇到 pending_pair 仍为 NULL 的异常行时，也只按
+// ForwardCount 奇偶把它显式化，不改变原语义。
+func (r *Repo) DecideAndLog(rec *models.ForwardRecord, targetMsgID int, senderID int64, adjacentGap int) (*PairDecision, error) {
 	decision := &PairDecision{}
 
 	err := r.db.Transaction(func(tx *gorm.DB) error {
+		var current models.ForwardRecord
+		if err := tx.Select("id", "forward_count", "pending_pair", "last_occurrence_msg_id").
+			First(&current, rec.ID).Error; err != nil {
+			return fmt.Errorf("read record: %w", err)
+		}
+
+		if adjacentGap > 0 && current.LastOccurrenceMsgID != nil {
+			delta := targetMsgID - *current.LastOccurrenceMsgID
+			if delta >= 0 && delta <= adjacentGap {
+				updates := map[string]interface{}{
+					"forward_count":          gorm.Expr("forward_count + 1"),
+					"last_occurrence_msg_id": targetMsgID,
+				}
+				if current.PendingPair == nil {
+					// 只把隐式状态显式化，不改变奇偶推导出的语义。
+					pending := current.ForwardCount%2 == 1
+					updates["pending_pair"] = pending
+					rec.PendingPair = &pending
+				} else {
+					rec.PendingPair = current.PendingPair
+				}
+
+				result := tx.Model(&models.ForwardRecord{}).
+					Where("id = ? AND last_occurrence_msg_id = ?", rec.ID, *current.LastOccurrenceMsgID).
+					Updates(updates)
+				if result.Error != nil {
+					return fmt.Errorf("record adjacent occurrence: %w", result.Error)
+				}
+				if result.RowsAffected == 0 {
+					return fmt.Errorf("adjacent state for record %d changed unexpectedly", rec.ID)
+				}
+
+				var row struct {
+					ForwardCount int
+				}
+				if err := tx.Model(&models.ForwardRecord{}).
+					Select("forward_count").
+					Where("id = ?", rec.ID).
+					Scan(&row).Error; err != nil {
+					return fmt.Errorf("read forward count: %w", err)
+				}
+				decision.Seq = int64(row.ForwardCount)
+				decision.Adjacent = true
+
+				log := models.ForwardLog{RecordID: rec.ID, SenderID: senderID, TargetMsgID: targetMsgID}
+				if err := tx.Create(&log).Error; err != nil {
+					return fmt.Errorf("create log: %w", err)
+				}
+				return nil
+			}
+		}
+
 		// 分支 1：当前存在待配对出现 -> 与本次出现配对，把 pending 翻转为 false。
 		claim := tx.Model(&models.ForwardRecord{}).
 			Where("id = ? AND (pending_pair = ? OR (pending_pair IS NULL AND forward_count % 2 = 1))", rec.ID, true).
 			Updates(map[string]interface{}{
-				"pending_pair":  false,
-				"forward_count": gorm.Expr("forward_count + 1"),
+				"pending_pair":           false,
+				"forward_count":          gorm.Expr("forward_count + 1"),
+				"last_occurrence_msg_id": targetMsgID,
 			})
 		if claim.Error != nil {
 			return fmt.Errorf("claim pair: %w", claim.Error)
@@ -134,8 +198,9 @@ func (r *Repo) DecideAndLog(rec *models.ForwardRecord, targetMsgID int, senderID
 			silent := tx.Model(&models.ForwardRecord{}).
 				Where("id = ? AND (pending_pair = ? OR (pending_pair IS NULL AND forward_count % 2 = 0))", rec.ID, false).
 				Updates(map[string]interface{}{
-					"pending_pair":  true,
-					"forward_count": gorm.Expr("forward_count + 1"),
+					"pending_pair":           true,
+					"forward_count":          gorm.Expr("forward_count + 1"),
+					"last_occurrence_msg_id": targetMsgID,
 				})
 			if silent.Error != nil {
 				return fmt.Errorf("start new pair: %w", silent.Error)
@@ -169,6 +234,10 @@ func (r *Repo) DecideAndLog(rec *models.ForwardRecord, targetMsgID int, senderID
 	}
 
 	rec.ForwardCount = int(decision.Seq)
+	rec.LastOccurrenceMsgID = &targetMsgID
+	if decision.Adjacent {
+		return decision, nil
+	}
 	if decision.Alert {
 		pending := false
 		rec.PendingPair = &pending

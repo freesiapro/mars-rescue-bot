@@ -18,18 +18,25 @@ import (
 	"mars-rescue-bot/internal/textnorm"
 )
 
+// AdjacentRepeatGap 是同一内容连续刷屏的 message_id 间隔阈值。
+// 两次出现的消息 ID 相差不超过该值时，视为同一波刷屏：只计数，不提醒。
+const AdjacentRepeatGap = 5
+
 // Processor 处理群内重复内容检测与回复。
 // 配对规则：同一 (群, 内容键) 的出现按顺序两两配对。第 1、3、5… 次只记录，
 // 第 2、4、6… 次与上一次组成一对并发送火星提醒；每次出现都照常计入统计。
+// 同一波连续刷屏（消息 ID 相差不超过 AdjacentRepeatGap）只计数，不提醒，
+// 也不消耗配对位置。
 type Processor struct {
-	repo        *repo.Repo
-	cooldown    *Cooldown
-	names       *names.Resolver
-	statsLoc    *time.Location
-	dedupSecret string
-	maxAttempts int
-	sleep       func(time.Duration)
-	now         func() time.Time
+	repo              *repo.Repo
+	cooldown          *Cooldown
+	names             *names.Resolver
+	statsLoc          *time.Location
+	dedupSecret       string
+	maxAttempts       int
+	sleep             func(time.Duration)
+	now               func() time.Time
+	adjacentRepeatGap int
 }
 
 func NewProcessor(r *repo.Repo, dedupSecret string, nameResolver *names.Resolver, statsLoc *time.Location) *Processor {
@@ -40,14 +47,15 @@ func NewProcessor(r *repo.Repo, dedupSecret string, nameResolver *names.Resolver
 		statsLoc = time.UTC
 	}
 	return &Processor{
-		repo:        r,
-		cooldown:    NewCooldown(),
-		names:       nameResolver,
-		statsLoc:    statsLoc,
-		dedupSecret: dedupSecret,
-		maxAttempts: maxReplyAttempts,
-		sleep:       time.Sleep,
-		now:         time.Now,
+		repo:              r,
+		cooldown:          NewCooldown(),
+		names:             nameResolver,
+		statsLoc:          statsLoc,
+		dedupSecret:       dedupSecret,
+		maxAttempts:       maxReplyAttempts,
+		sleep:             time.Sleep,
+		now:               time.Now,
+		adjacentRepeatGap: AdjacentRepeatGap,
 	}
 }
 
@@ -223,7 +231,7 @@ func (p *Processor) logOccurrence(msg *telebot.Message, key, kind string) (*dupl
 	}
 
 	// 决策 1：不区分发送者，自己重复发也计入配对并提醒。
-	decision, err := p.repo.DecideAndLog(rec, msg.ID, msg.Sender.ID)
+	decision, err := p.repo.DecideAndLog(rec, msg.ID, msg.Sender.ID, p.adjacentRepeatGap)
 	if err != nil {
 		return nil, err
 	}

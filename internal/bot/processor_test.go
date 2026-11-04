@@ -31,6 +31,8 @@ func setupProcessor(t *testing.T) (*Processor, *repo.Repo, *gorm.DB) {
 	r := repo.New(db)
 	p := NewProcessor(r, "test-secret", names.New(nil), time.UTC)
 	p.sleep = func(time.Duration) {}
+	// 多数测试验证普通配对；相邻刷屏豁免由专门的测试显式开启。
+	p.adjacentRepeatGap = 0
 	return p, r, db
 }
 
@@ -942,6 +944,7 @@ func TestProcessorPairingSurvivesRestart(t *testing.T) {
 	restarted := func() *Processor {
 		np := NewProcessor(repo.New(db), "test-secret", names.New(nil), time.UTC)
 		np.sleep = func(time.Duration) {}
+		np.adjacentRepeatGap = 0
 		return np
 	}
 
