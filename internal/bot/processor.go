@@ -22,6 +22,9 @@ import (
 // 两次出现的消息 ID 相差不超过该值时，视为同一波刷屏：只计数，不提醒。
 const AdjacentRepeatGap = 5
 
+// textContentKeyPrefix 让文本键可以与 v1 原始文本哈希区分，也方便日志提取短指纹。
+const textContentKeyPrefix = "text:v2:"
+
 // Processor 处理群内重复内容检测与回复。
 // 配对规则：同一 (群, 内容键) 的出现按顺序两两配对。第 1、3、5… 次只记录，
 // 第 2、4、6… 次与上一次组成一对并发送火星提醒；每次出现都照常计入统计。
@@ -37,6 +40,7 @@ type Processor struct {
 	sleep             func(time.Duration)
 	now               func() time.Time
 	adjacentRepeatGap int
+	logger            *slog.Logger
 }
 
 func NewProcessor(r *repo.Repo, dedupSecret string, nameResolver *names.Resolver, statsLoc *time.Location) *Processor {
@@ -56,6 +60,7 @@ func NewProcessor(r *repo.Repo, dedupSecret string, nameResolver *names.Resolver
 		sleep:             time.Sleep,
 		now:               time.Now,
 		adjacentRepeatGap: AdjacentRepeatGap,
+		logger:            slog.Default(),
 	}
 }
 
@@ -73,50 +78,72 @@ func (p *Processor) Handle(c telebot.Context) error {
 // ProcessMessage 执行去重与回复逻辑。
 // reply 由调用方提供，便于在纯 Go 测试中捕获输出。
 func (p *Processor) ProcessMessage(msg *telebot.Message, traceID string, reply func(string) error) error {
-	if msg == nil || msg.Chat == nil || msg.Chat.Type == telebot.ChatPrivate {
+	rec := newDecisionRecorder(p.logger, p.dedupSecret, msg)
+	defer rec.log()
+
+	if msg == nil {
+		rec.set(DecisionNoMessage)
+		return nil
+	}
+	if msg.Chat == nil {
+		rec.set(DecisionNoChat)
+		return nil
+	}
+	if msg.Chat.Type == telebot.ChatPrivate {
+		rec.set(DecisionPrivateChat)
 		return nil
 	}
 	// 匿名管理员或频道发言可能没有 Sender，后续逻辑依赖其身份，安全跳过。
 	if msg.Sender == nil {
 		slog.Debug("skip message without sender", "chat_id", msg.Chat.ID)
+		rec.set(DecisionNoSender)
 		return nil
 	}
 	// 机器人（包括本 bot）自己发送的消息不参与去重，避免互相触发。
 	if msg.Sender.IsBot {
+		rec.set(DecisionBotIgnored)
 		return nil
 	}
 	p.names.Observe(msg.Sender)
 
 	settings, err := p.repo.GetChatSettings(msg.Chat.ID)
 	if err != nil {
+		rec.set(DecisionProcessingError)
 		return err
 	}
 	if !settings.Enabled {
 		slog.Debug("chat disabled, skip", "chat_id", msg.Chat.ID)
+		rec.set(DecisionDisabledChat)
 		return nil
 	}
 
 	ignored, err := p.repo.IsIgnored(msg.Chat.ID, msg.Sender.ID)
 	if err != nil {
+		rec.set(DecisionProcessingError)
 		return err
 	}
 	if ignored {
 		slog.Debug("sender ignored, skip", "chat_id", msg.Chat.ID, "user_id", msg.Sender.ID)
+		rec.set(DecisionIgnoredUser)
 		return nil
 	}
 
-	for _, try := range []func(*telebot.Message) (*duplicateEvent, error){
+	for _, try := range []func(*telebot.Message, *decisionRecorder) (*duplicateEvent, error){
 		p.tryChannelForward,
 		p.tryMediaDuplicate,
 		p.tryTextDuplicate,
 	} {
-		event, err := try(msg)
+		event, err := try(msg, rec)
 		if err != nil {
+			rec.set(DecisionProcessingError)
 			return err
 		}
 		if event != nil {
-			return p.emitReply(msg, event, settings, traceID, reply)
+			return p.emitReply(msg, event, settings, traceID, reply, rec)
 		}
+	}
+	if !rec.decided {
+		rec.set(fallbackDecision(msg))
 	}
 	return nil
 }
@@ -132,12 +159,12 @@ type duplicateEvent struct {
 }
 
 // === 场景 A：频道转发 ===
-func (p *Processor) tryChannelForward(msg *telebot.Message) (*duplicateEvent, error) {
+func (p *Processor) tryChannelForward(msg *telebot.Message, rec *decisionRecorder) (*duplicateEvent, error) {
 	key, ok := channelForwardKey(msg)
 	if !ok {
 		return nil, nil
 	}
-	return p.logOccurrence(msg, key, "channel")
+	return p.logOccurrence(msg, key, "channel", rec)
 }
 
 // channelForwardKey 优先读取新版 forward_origin，再回退旧版 forward_from_chat。
@@ -164,15 +191,19 @@ func isChannelForward(msg *telebot.Message) bool {
 // 图片取最大尺寸（telebot 已选择）的 file_unique_id；视频、动画、文件直接取其
 // file_unique_id。不下载文件，也不保存文件内容。频道转发的媒体走频道分支；
 // 其他转发与手打媒体使用同一个内容键。
-func (p *Processor) tryMediaDuplicate(msg *telebot.Message) (*duplicateEvent, error) {
+func (p *Processor) tryMediaDuplicate(msg *telebot.Message, rec *decisionRecorder) (*duplicateEvent, error) {
 	if isChannelForward(msg) {
 		return nil, nil
 	}
 	key, subject, ok := mediaContentKey(msg)
 	if !ok {
+		// 支持的媒体类型却拿不到 file_unique_id：有内容，但没有可用的去重键。
+		if msg.Photo != nil || msg.Video != nil || msg.Animation != nil || msg.Document != nil {
+			rec.set(DecisionNoContent)
+		}
 		return nil, nil
 	}
-	event, err := p.logOccurrence(msg, key, "media")
+	event, err := p.logOccurrence(msg, key, "media", rec)
 	if event != nil {
 		event.mediaSubject = subject
 	}
@@ -195,57 +226,80 @@ func mediaContentKey(msg *telebot.Message) (key, subject string, ok bool) {
 }
 
 // === 场景 C：纯文本重复 ===
-func (p *Processor) tryTextDuplicate(msg *telebot.Message) (*duplicateEvent, error) {
-	if isChannelForward(msg) || msg.Text == "" || msg.Photo != nil || msg.Video != nil || msg.Audio != nil || msg.Document != nil {
+func (p *Processor) tryTextDuplicate(msg *telebot.Message, rec *decisionRecorder) (*duplicateEvent, error) {
+	if isChannelForward(msg) || msg.Text == "" || msg.Photo != nil || msg.Video != nil || msg.Animation != nil || msg.Audio != nil || msg.Document != nil {
 		return nil, nil
 	}
 	// 命令不该进入去重逻辑（未注册的命令会被 telebot 交给 OnText）。
 	text := strings.TrimSpace(msg.Text)
-	if text == "" || strings.HasPrefix(text, "/") {
+	if text == "" {
+		rec.set(DecisionNoContent)
+		return nil, nil
+	}
+	if strings.HasPrefix(text, "/") {
+		rec.set(DecisionCommand)
 		return nil, nil
 	}
 
 	normalized := textnorm.Normalize(text)
+	if normalized == "" {
+		rec.set(DecisionNoContent)
+		return nil, nil
+	}
 	// 短消息、纯 URL、纯表情/符号不参与文本去重。
 	if !textnorm.HasContent(normalized, textnorm.DefaultMinRunes) {
+		rec.set(DecisionShortTextSkipped)
 		return nil, nil
 	}
 	// 同一字符刷屏（哈哈哈哈、666666）是口头禅，不记录也不计数。
 	if textnorm.IsRepeatedSingleRune(normalized) {
+		rec.set(DecisionRepeatedCharSkipped)
 		return nil, nil
 	}
 
 	key := textContentKey(p.dedupSecret, normalized)
-	return p.logOccurrence(msg, key, "text")
+	return p.logOccurrence(msg, key, "text", rec)
 }
 
 // logOccurrence 写入本次出现并在需要时返回提醒事件。
-func (p *Processor) logOccurrence(msg *telebot.Message, key, kind string) (*duplicateEvent, error) {
+func (p *Processor) logOccurrence(msg *telebot.Message, key, kind string, rec *decisionRecorder) (*duplicateEvent, error) {
+	rec.setKey(key)
 	if err := p.repo.UpsertUserStats(msg.Sender.ID); err != nil {
 		return nil, err
 	}
 
-	rec, isNew, err := p.repo.FindOrCreateRecord(msg.Chat.ID, key, msg.ID, msg.Sender.ID)
-	if err != nil || isNew {
+	record, isNew, err := p.repo.FindOrCreateRecord(msg.Chat.ID, key, msg.ID, msg.Sender.ID)
+	if err != nil {
 		return nil, err
+	}
+	if isNew {
+		rec.set(DecisionPairedSilent)
+		return nil, nil
 	}
 
 	// 决策 1：不区分发送者，自己重复发也计入配对并提醒。
-	decision, err := p.repo.DecideAndLog(rec, msg.ID, msg.Sender.ID, p.adjacentRepeatGap)
+	decision, err := p.repo.DecideAndLog(record, msg.ID, msg.Sender.ID, p.adjacentRepeatGap)
 	if err != nil {
 		return nil, err
 	}
 	if !decision.Alert {
+		if decision.Adjacent {
+			rec.set(DecisionAdjacentRepeatExempt)
+		} else {
+			rec.set(DecisionPairedSilent)
+		}
 		return nil, nil
 	}
-	return &duplicateEvent{record: rec, kind: kind, sender: msg.Sender, seq: decision.Seq}, nil
+	rec.set(DecisionAlerted)
+	return &duplicateEvent{record: record, kind: kind, sender: msg.Sender, seq: decision.Seq}, nil
 }
 
-func (p *Processor) emitReply(msg *telebot.Message, event *duplicateEvent, settings *models.ChatSettings, traceID string, reply func(string) error) error {
+func (p *Processor) emitReply(msg *telebot.Message, event *duplicateEvent, settings *models.ChatSettings, traceID string, reply func(string) error, rec *decisionRecorder) error {
 	// 配对状态已在 DecideAndLog 中随计数一起原子翻转。但“取消配对”只在提醒
 	// 真正发出后才成立：冷却抑制或发送失败时都要回滚，否则这一对会被静默吞掉。
 	cooldown := time.Duration(settings.CooldownSeconds) * time.Second
 	if !p.cooldown.Allow(msg.Chat.ID, cooldown) {
+		rec.set(DecisionCooldownSuppressed)
 		slog.Info("reply suppressed by cooldown",
 			"trace_id", traceID,
 			"chat_id", msg.Chat.ID,
@@ -263,6 +317,7 @@ func (p *Processor) emitReply(msg *telebot.Message, event *duplicateEvent, setti
 
 	text := p.formatDuplicate(msg.Chat, event, settings.MentionEnabled)
 	if err := reply(text); err != nil {
+		rec.set(DecisionSendFailedRolledBack)
 		slog.Error("send reply failed", "trace_id", traceID, "chat_id", msg.Chat.ID, "error", err)
 		// 发送失败（例如 429 重试耗尽）不算配对成功，恢复待配对状态，
 		// 让后续出现仍有机会重新提醒；条件回滚保证不会覆盖并发推进的新状态。
@@ -376,7 +431,7 @@ func (e *duplicateEvent) subject() string {
 func textContentKey(secret, text string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(text))
-	return "text:v2:" + hex.EncodeToString(mac.Sum(nil))
+	return textContentKeyPrefix + hex.EncodeToString(mac.Sum(nil))
 }
 
 // messageLink 生成消息链接。
