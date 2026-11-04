@@ -18,8 +18,12 @@ type ForwardRecord struct {
 	// 读取时按 ForwardCount 的奇偶推导（旧数据每次出现都会自增计数，
 	// 因此计数为奇数说明还有一个未配对的出现）。新写入的行总是显式赋值。
 	PendingPair *bool
-	CreatedAt   time.Time `gorm:"autoCreateTime"`
-	UpdatedAt   time.Time `gorm:"autoUpdateTime;index"`
+	// LastOccurrenceMsgID 是最近一次出现的消息 ID，用于识别同一波连续刷屏。
+	// 使用指针是为了兼容旧行：AutoMigrate 新增列后旧行为 NULL，表示无法判断
+	// 相邻关系，下一次出现按普通配对处理并把该列补上。
+	LastOccurrenceMsgID *int
+	CreatedAt           time.Time `gorm:"autoCreateTime"`
+	UpdatedAt           time.Time `gorm:"autoUpdateTime;index"`
 }
 
 func (ForwardRecord) TableName() string {
