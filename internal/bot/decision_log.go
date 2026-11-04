@@ -100,6 +100,15 @@ func (d *decisionRecorder) log() {
 	d.logger.Info("dedup decision", attrs...)
 }
 
+// LogCommandDecision 为不经过 Processor 的已注册命令补上同一条决策日志。
+// telebot 会把已注册命令直接交给命令处理器，不再经过 OnText；/hyw 用它保证
+// 命令消息仍然只有一条 DecisionCommand，且不写入任何去重数据。
+func LogCommandDecision(msg *telebot.Message) {
+	rec := newDecisionRecorder(slog.Default(), "", msg)
+	rec.set(DecisionCommand)
+	rec.log()
+}
+
 // messageType 返回日志里的消息类型。频道转发优先于原始内容类型；
 // 其余按实际载荷判断，不读取正文。
 func messageType(msg *telebot.Message) string {

@@ -15,7 +15,6 @@ import (
 	"mars-rescue-bot/internal/models"
 	"mars-rescue-bot/internal/names"
 	"mars-rescue-bot/internal/repo"
-	"mars-rescue-bot/internal/textnorm"
 )
 
 // AdjacentRepeatGap 是同一内容连续刷屏的 message_id 间隔阈值。
@@ -128,24 +127,26 @@ func (p *Processor) ProcessMessage(msg *telebot.Message, traceID string, reply f
 		return nil
 	}
 
-	for _, try := range []func(*telebot.Message, *decisionRecorder) (*duplicateEvent, error){
-		p.tryChannelForward,
-		p.tryMediaDuplicate,
-		p.tryTextDuplicate,
-	} {
-		event, err := try(msg, rec)
-		if err != nil {
-			rec.set(DecisionProcessingError)
-			return err
+	content := AnalyzeMessageContent(msg, p.dedupSecret)
+	if content.Key == "" {
+		if content.SkipDecision != "" {
+			rec.set(content.SkipDecision)
+		} else {
+			rec.set(fallbackDecision(msg))
 		}
-		if event != nil {
-			return p.emitReply(msg, event, settings, traceID, reply, rec)
-		}
+		return nil
 	}
-	if !rec.decided {
-		rec.set(fallbackDecision(msg))
+
+	event, err := p.logOccurrence(msg, content.Key, content.Kind, rec)
+	if err != nil {
+		rec.set(DecisionProcessingError)
+		return err
 	}
-	return nil
+	if event == nil {
+		return nil
+	}
+	event.mediaSubject = content.MediaSubject
+	return p.emitReply(msg, event, settings, traceID, reply, rec)
 }
 
 type duplicateEvent struct {
@@ -156,15 +157,6 @@ type duplicateEvent struct {
 	sender       *telebot.User
 	// seq 是本次出现后的 forward_count，用于提醒发送失败时条件回滚配对状态。
 	seq int64
-}
-
-// === 场景 A：频道转发 ===
-func (p *Processor) tryChannelForward(msg *telebot.Message, rec *decisionRecorder) (*duplicateEvent, error) {
-	key, ok := channelForwardKey(msg)
-	if !ok {
-		return nil, nil
-	}
-	return p.logOccurrence(msg, key, "channel", rec)
 }
 
 // channelForwardKey 优先读取新版 forward_origin，再回退旧版 forward_from_chat。
@@ -187,30 +179,10 @@ func isChannelForward(msg *telebot.Message) bool {
 	return ok
 }
 
-// === 场景 B：媒体重复 ===
+// mediaContentKey 返回去重键和提醒文案里的名词。名词只影响展示，不参与去重。
 // 图片取最大尺寸（telebot 已选择）的 file_unique_id；视频、动画、文件直接取其
 // file_unique_id。不下载文件，也不保存文件内容。频道转发的媒体走频道分支；
 // 其他转发与手打媒体使用同一个内容键。
-func (p *Processor) tryMediaDuplicate(msg *telebot.Message, rec *decisionRecorder) (*duplicateEvent, error) {
-	if isChannelForward(msg) {
-		return nil, nil
-	}
-	key, subject, ok := mediaContentKey(msg)
-	if !ok {
-		// 支持的媒体类型却拿不到 file_unique_id：有内容，但没有可用的去重键。
-		if msg.Photo != nil || msg.Video != nil || msg.Animation != nil || msg.Document != nil {
-			rec.set(DecisionNoContent)
-		}
-		return nil, nil
-	}
-	event, err := p.logOccurrence(msg, key, "media", rec)
-	if event != nil {
-		event.mediaSubject = subject
-	}
-	return event, err
-}
-
-// mediaContentKey 返回去重键和提醒文案里的名词。名词只影响展示，不参与去重。
 func mediaContentKey(msg *telebot.Message) (key, subject string, ok bool) {
 	switch {
 	case msg.Photo != nil && msg.Photo.UniqueID != "":
@@ -223,42 +195,6 @@ func mediaContentKey(msg *telebot.Message) (key, subject string, ok bool) {
 		return "media:document:" + msg.Document.UniqueID, "这个文件", true
 	}
 	return "", "", false
-}
-
-// === 场景 C：纯文本重复 ===
-func (p *Processor) tryTextDuplicate(msg *telebot.Message, rec *decisionRecorder) (*duplicateEvent, error) {
-	if isChannelForward(msg) || msg.Text == "" || msg.Photo != nil || msg.Video != nil || msg.Animation != nil || msg.Audio != nil || msg.Document != nil {
-		return nil, nil
-	}
-	// 命令不该进入去重逻辑（未注册的命令会被 telebot 交给 OnText）。
-	text := strings.TrimSpace(msg.Text)
-	if text == "" {
-		rec.set(DecisionNoContent)
-		return nil, nil
-	}
-	if strings.HasPrefix(text, "/") {
-		rec.set(DecisionCommand)
-		return nil, nil
-	}
-
-	normalized := textnorm.Normalize(text)
-	if normalized == "" {
-		rec.set(DecisionNoContent)
-		return nil, nil
-	}
-	// 短消息、纯 URL、纯表情/符号不参与文本去重。
-	if !textnorm.HasContent(normalized, textnorm.DefaultMinRunes) {
-		rec.set(DecisionShortTextSkipped)
-		return nil, nil
-	}
-	// 同一字符刷屏（哈哈哈哈、666666）是口头禅，不记录也不计数。
-	if textnorm.IsRepeatedSingleRune(normalized) {
-		rec.set(DecisionRepeatedCharSkipped)
-		return nil, nil
-	}
-
-	key := textContentKey(p.dedupSecret, normalized)
-	return p.logOccurrence(msg, key, "text", rec)
 }
 
 // logOccurrence 写入本次出现并在需要时返回提醒事件。
@@ -391,19 +327,24 @@ func (p *Processor) formatDuplicate(chat *telebot.Chat, event *duplicateEvent, m
 
 // formatFirstSeen 返回提醒里的短时间：当天只显示时:分，其他日期显示月-日 时:分。
 func (p *Processor) formatFirstSeen(t time.Time) string {
+	now := time.Now()
+	if p.now != nil {
+		now = p.now()
+	}
+	return FormatShortTime(t, now, p.statsLoc)
+}
+
+// FormatShortTime 统一提醒与 /hyw 查询使用的时间格式。
+func FormatShortTime(t, now time.Time, loc *time.Location) string {
 	if t.IsZero() {
 		return ""
 	}
-	loc := p.statsLoc
 	if loc == nil {
 		loc = time.UTC
 	}
 	local := t.In(loc)
-	now := time.Now().In(loc)
-	if p.now != nil {
-		now = p.now().In(loc)
-	}
-	if local.Year() == now.Year() && local.Month() == now.Month() && local.Day() == now.Day() {
+	nowLocal := now.In(loc)
+	if local.Year() == nowLocal.Year() && local.Month() == nowLocal.Month() && local.Day() == nowLocal.Day() {
 		return local.Format("15:04")
 	}
 	return local.Format("01-02 15:04")
