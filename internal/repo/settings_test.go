@@ -191,11 +191,8 @@ func TestGetTopRescuersCountsEveryOccurrence(t *testing.T) {
 	now := time.Now()
 	since := now.Add(-7 * 24 * time.Hour)
 
-	for _, user := range []struct {
-		id   int64
-		name string
-	}{{1, "alice"}, {2, "bob"}} {
-		if err := r.UpsertUserStats(user.id, user.name, user.name); err != nil {
+	for _, userID := range []int64{1, 2} {
+		if err := r.UpsertUserStats(userID); err != nil {
 			t.Fatalf("UpsertUserStats() error = %v", err)
 		}
 	}
@@ -236,6 +233,8 @@ func TestGetTopRescuersCountsEveryOccurrence(t *testing.T) {
 	// user 2：rec1、rec3 各算 1，共 2。
 	mustCreateLog(rec1.ID, 2, now.Add(-time.Hour))
 	mustCreateLog(rec3.ID, 2, now.Add(-time.Hour))
+	// user 3 没有 user_stats 行，也应计入：排行榜不依赖 user_stats。
+	mustCreateLog(rec3.ID, 3, now.Add(-time.Hour))
 	// 其他群不应计入。
 	mustCreateLog(otherChatRec.ID, 1, now.Add(-time.Hour))
 
@@ -243,8 +242,8 @@ func TestGetTopRescuersCountsEveryOccurrence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetTopRescuers() error = %v", err)
 	}
-	if len(stats) != 2 {
-		t.Fatalf("stats = %+v, want 2 users", stats)
+	if len(stats) != 3 {
+		t.Fatalf("stats = %+v, want 3 users", stats)
 	}
 	// 同分时按 user_id 升序。
 	if stats[0].UserID != 1 || stats[0].RescueCount != 3 {
@@ -252,5 +251,13 @@ func TestGetTopRescuersCountsEveryOccurrence(t *testing.T) {
 	}
 	if stats[1].UserID != 2 || stats[1].RescueCount != 2 {
 		t.Errorf("second = %+v, want user 2 with 2 occurrences", stats[1])
+	}
+	if stats[2].UserID != 3 || stats[2].RescueCount != 1 {
+		t.Errorf("third = %+v, want user 3 with 1 occurrence", stats[2])
+	}
+	for _, s := range stats {
+		if s.Username != "" || s.FirstName != "" {
+			t.Errorf("stats row %+v contains names; leaderboard must be ID-only", s)
+		}
 	}
 }

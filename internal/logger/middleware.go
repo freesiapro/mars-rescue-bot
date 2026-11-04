@@ -43,10 +43,8 @@ func logMessageReceived(traceID string, msg *telebot.Message) {
 	}
 
 	userID := int64(0)
-	username := ""
 	if msg.Sender != nil {
 		userID = msg.Sender.ID
-		username = msg.Sender.Username
 	}
 
 	// 判断消息类型，丰富日志信息
@@ -84,7 +82,6 @@ func logMessageReceived(traceID string, msg *telebot.Message) {
 		"chat_id", chatID,
 		"chat_type", chatType,
 		"user_id", userID,
-		"username", username,
 		"message_id", msg.ID,
 		"msg_type", msgType,
 		"forward", forwardInfo,

@@ -11,20 +11,26 @@ import (
 	"mars-rescue-bot/internal/config"
 	"mars-rescue-bot/internal/logger"
 	"mars-rescue-bot/internal/models"
+	"mars-rescue-bot/internal/names"
 	"mars-rescue-bot/internal/repo"
 )
 
 type CommandHandler struct {
 	repo     *repo.Repo
 	admins   *AdminChecker
+	names    *names.Resolver
 	now      func() time.Time
 	statsLoc *time.Location
 }
 
-func NewCommandHandler(r *repo.Repo, admins *AdminChecker) *CommandHandler {
+func NewCommandHandler(r *repo.Repo, admins *AdminChecker, resolver *names.Resolver) *CommandHandler {
+	if resolver == nil {
+		resolver = names.New(nil)
+	}
 	return &CommandHandler{
 		repo:     r,
 		admins:   admins,
+		names:    resolver,
 		now:      time.Now,
 		statsLoc: config.StatsLocation(),
 	}
@@ -53,7 +59,6 @@ func (h *CommandHandler) handleStart(c telebot.Context) error {
 	slog.Info("处理 /start 命令",
 		"trace_id", traceID,
 		"user_id", sender.ID,
-		"username", sender.Username,
 	)
 	return c.Reply(
 		"🚀 火星救援 Bot 已上线！\n\n" +
@@ -118,7 +123,7 @@ func (h *CommandHandler) handleRank(c telebot.Context) error {
 		return c.Reply("获取排行榜失败，请稍后重试。")
 	}
 
-	text := bot.FormatRankList(stats, chatTitle)
+	text := bot.FormatRankList(stats, msg.Chat, chatTitle, h.names)
 	return c.Reply(text, telebot.ModeHTML)
 }
 

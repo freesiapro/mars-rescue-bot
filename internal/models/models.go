@@ -40,6 +40,8 @@ func (ForwardLog) TableName() string {
 }
 
 // UserStats 排行榜用户统计。
+// Username/FirstName 仅为兼容旧数据库保留：新数据不再写入，升级时会清空历史值。
+// 榜单与展示均以 user_id 为准，姓名由进程内缓存 + getChatMember 实时解析。
 type UserStats struct {
 	UserID      int64     `gorm:"primaryKey"`
 	Username    string    `gorm:"size:255"`

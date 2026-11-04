@@ -180,7 +180,7 @@ func (p *Processor) tryTextDuplicate(msg *telebot.Message) (*duplicateEvent, err
 
 // logOccurrence 写入本次出现并在需要时返回提醒事件。
 func (p *Processor) logOccurrence(msg *telebot.Message, key, kind string) (*duplicateEvent, error) {
-	if err := p.repo.UpsertUserStats(msg.Sender.ID, msg.Sender.Username, msg.Sender.FirstName); err != nil {
+	if err := p.repo.UpsertUserStats(msg.Sender.ID); err != nil {
 		return nil, err
 	}
 
@@ -332,7 +332,7 @@ func formatMention(user *telebot.User) string {
 	return fmt.Sprintf("<a href=\"tg://user?id=%d\">%s</a>", user.ID, formatDisplayName(user))
 }
 
-func FormatRankList(stats []models.UserStats, chatTitle string) string {
+func FormatRankList(stats []models.UserStats, chat *telebot.Chat, chatTitle string, resolver *names.Resolver) string {
 	if len(stats) == 0 {
 		return "📊 本周暂无火星记录"
 	}
@@ -340,9 +340,9 @@ func FormatRankList(stats []models.UserStats, chatTitle string) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("🏆 <b>%s</b> 火星指数榜（本周）\n\n", html.EscapeString(chatTitle)))
 	for i, s := range stats {
-		name := s.FirstName
-		if s.Username != "" {
-			name = "@" + s.Username
+		name := resolver.Name(chat, s.UserID)
+		if name == "" {
+			name = fmt.Sprintf("用户 %d", s.UserID)
 		}
 		name = html.EscapeString(name)
 		medal := ""
@@ -354,7 +354,7 @@ func FormatRankList(stats []models.UserStats, chatTitle string) string {
 		case 2:
 			medal = "🥉 "
 		}
-		sb.WriteString(fmt.Sprintf("%s%d. %s — %d 条不同内容\n", medal, i+1, name, s.RescueCount))
+		sb.WriteString(fmt.Sprintf("%s%d. %s — %d 次\n", medal, i+1, name, s.RescueCount))
 	}
 	return sb.String()
 }
