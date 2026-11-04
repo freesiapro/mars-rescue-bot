@@ -39,6 +39,7 @@ func NewCommandHandler(r *repo.Repo, admins *AdminChecker, resolver *names.Resol
 func (h *CommandHandler) Register(bot *telebot.Bot) {
 	bot.Handle("/start", h.handleStart)
 	bot.Handle("/mars_rank", h.handleRank)
+	bot.Handle("/mars_me", h.handleMe)
 	bot.Handle("/mars_off", h.handleOff)
 	bot.Handle("/mars_on", h.handleOn)
 	bot.Handle("/mars_status", h.handleStatus)
@@ -66,7 +67,8 @@ func (h *CommandHandler) handleStart(c telebot.Context) error {
 			"同一内容按出现顺序两两配对：第 2 次出现时我会提醒，配对后重新计数，\n" +
 			"所以第 3 次不提醒、第 4 次再提醒，依此类推。\n\n" +
 			"命令:\n" +
-			"/mars_rank - 查看本周火星指数榜\n" +
+			"/mars_rank [week|month|all] - 查看本周/本月/总火星指数榜\n" +
+			"/mars_me - 查看自己的火星指数\n" +
 			"/mars_status - 查看本群设置（管理员）\n" +
 			"/mars_off - 关闭本群检测（管理员）\n" +
 			"/mars_on - 开启本群检测（管理员）\n" +
@@ -90,10 +92,25 @@ func (h *CommandHandler) handleRank(c telebot.Context) error {
 		return nil
 	}
 
+	period, err := parseRankPeriod(c.Args())
+	if err != nil {
+		return c.Reply(err.Error(), telebot.ModeHTML)
+	}
+	var since time.Time
+	switch period {
+	case rankPeriodMonth:
+		since = monthStart(h.now(), h.statsLoc)
+	case rankPeriodAll:
+		// 零值表示不限时间。
+	default:
+		since = weekStart(h.now(), h.statsLoc)
+	}
+
 	slog.Info("处理 /mars_rank 命令",
 		"trace_id", traceID,
 		"chat_id", msg.Chat.ID,
 		"user_id", msg.Sender.ID,
+		"period", string(period),
 	)
 
 	if msg.Chat.Type == telebot.ChatPrivate {
@@ -112,7 +129,6 @@ func (h *CommandHandler) handleRank(c telebot.Context) error {
 		chatTitle = "本群"
 	}
 
-	since := weekStart(h.now(), h.statsLoc)
 	stats, err := h.repo.GetTopRescuers(msg.Chat.ID, since, 10)
 	if err != nil {
 		slog.Error("获取排行榜失败",
@@ -123,8 +139,46 @@ func (h *CommandHandler) handleRank(c telebot.Context) error {
 		return c.Reply("获取排行榜失败，请稍后重试。")
 	}
 
-	text := bot.FormatRankList(stats, msg.Chat, chatTitle, h.names)
+	text := bot.FormatRankList(stats, msg.Chat, chatTitle, period.label(), h.names)
 	return c.Reply(text, telebot.ModeHTML)
+}
+
+func (h *CommandHandler) handleMe(c telebot.Context) error {
+	traceID := logger.TraceIDFromContext(c)
+	msg := c.Message()
+	if msg == nil || msg.Chat == nil || msg.Sender == nil {
+		slog.Debug("skip /mars_me without message or sender", "trace_id", traceID)
+		return nil
+	}
+	if msg.Chat.Type == telebot.ChatPrivate {
+		return c.Reply("请在群聊中使用此命令。")
+	}
+
+	slog.Info("处理 /mars_me 命令",
+		"trace_id", traceID,
+		"chat_id", msg.Chat.ID,
+		"user_id", msg.Sender.ID,
+	)
+
+	now := h.now()
+	weekCount, err := h.repo.CountUserOccurrences(msg.Chat.ID, msg.Sender.ID, weekStart(now, h.statsLoc))
+	if err != nil {
+		return h.commandError(c, "读取本周火星指数失败", err)
+	}
+	monthCount, err := h.repo.CountUserOccurrences(msg.Chat.ID, msg.Sender.ID, monthStart(now, h.statsLoc))
+	if err != nil {
+		return h.commandError(c, "读取本月火星指数失败", err)
+	}
+	totalCount, err := h.repo.CountUserOccurrences(msg.Chat.ID, msg.Sender.ID, time.Time{})
+	if err != nil {
+		return h.commandError(c, "读取累计火星指数失败", err)
+	}
+	last, _, err := h.repo.LastUserOccurrence(msg.Chat.ID, msg.Sender.ID)
+	if err != nil {
+		return h.commandError(c, "读取最近一次火星记录失败", err)
+	}
+
+	return c.Reply(bot.FormatUserStats(weekCount, monthCount, totalCount, last, h.statsLoc), telebot.ModeHTML)
 }
 
 // --- 群级治理命令（仅管理员/群主） ---

@@ -239,22 +239,67 @@ func (r *Repo) IncrementUserCount(userID int64) error {
 }
 
 // GetTopRescuers 返回 since 之后、按“出现次数”统计的群排行榜。
-// 每次出现（包括第 1 次和同一用户重复发送）都会写入 forward_logs，因此直接 COUNT(*)。
-// 不 JOIN user_stats：排行榜只依赖 sender_id，姓名由调用方在展示时解析。
+// since 为零值时统计全部历史。每次出现（包括第 1 次和同一用户重复发送）都会
+// 写入 forward_logs，因此直接 COUNT(*)。不 JOIN user_stats：排行榜只依赖
+// sender_id，姓名由调用方在展示时解析。
 func (r *Repo) GetTopRescuers(chatID int64, since time.Time, limit int) ([]models.UserStats, error) {
 	var stats []models.UserStats
-	err := r.db.Raw(`
+	query := `
 		SELECT l.sender_id AS user_id, COUNT(*) as rescue_count
 		FROM forward_logs l
 		JOIN forward_records r ON l.record_id = r.id
-		WHERE r.chat_id = ? AND l.created_at >= ?
+		WHERE r.chat_id = ?`
+	args := []interface{}{chatID}
+	if !since.IsZero() {
+		query += " AND l.created_at >= ?"
+		args = append(args, since)
+	}
+	query += `
 		GROUP BY l.sender_id
 		ORDER BY rescue_count DESC, l.sender_id ASC
-		LIMIT ?
-	`, chatID, since, limit).Scan(&stats).Error
+		LIMIT ?`
+	args = append(args, limit)
+
+	err := r.db.Raw(query, args...).Scan(&stats).Error
 	if err != nil {
 		slog.Error("get top rescuers failed", "chat_id", chatID, "error", err)
 		return nil, err
 	}
 	return stats, nil
+}
+
+// CountUserOccurrences 统计某用户自 since 起在本群的出现次数；since 为零值时统计全部。
+func (r *Repo) CountUserOccurrences(chatID, userID int64, since time.Time) (int64, error) {
+	query := r.db.Table("forward_logs AS l").
+		Joins("JOIN forward_records AS r ON l.record_id = r.id").
+		Where("r.chat_id = ? AND l.sender_id = ?", chatID, userID)
+	if !since.IsZero() {
+		query = query.Where("l.created_at >= ?", since)
+	}
+	var count int64
+	if err := query.Count(&count).Error; err != nil {
+		return 0, fmt.Errorf("count user occurrences: %w", err)
+	}
+	return count, nil
+}
+
+// LastUserOccurrence 返回某用户在本群最近一次出现的时间。has=false 表示没有记录。
+func (r *Repo) LastUserOccurrence(chatID, userID int64) (last time.Time, has bool, err error) {
+	var row struct {
+		CreatedAt time.Time
+	}
+	err = r.db.Table("forward_logs AS l").
+		Select("l.created_at").
+		Joins("JOIN forward_records AS r ON l.record_id = r.id").
+		Where("r.chat_id = ? AND l.sender_id = ?", chatID, userID).
+		Order("l.created_at DESC, l.id DESC").
+		Limit(1).
+		Scan(&row).Error
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("last user occurrence: %w", err)
+	}
+	if row.CreatedAt.IsZero() {
+		return time.Time{}, false, nil
+	}
+	return row.CreatedAt, true, nil
 }

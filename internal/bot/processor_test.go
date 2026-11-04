@@ -1059,7 +1059,7 @@ func TestFormatRankListResolvesNamesAtDisplayTime(t *testing.T) {
 		{UserID: 2, RescueCount: 2},
 	}
 
-	out := FormatRankList(stats, chat, "测试群", resolver)
+	out := FormatRankList(stats, chat, "测试群", "本周", resolver)
 	for _, want := range []string{"Alice", "用户 2", "3 次", "2 次", "测试群"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("FormatRankList() = %q, want containing %q", out, want)
@@ -1072,7 +1072,7 @@ func TestFormatRankListResolvesNamesAtDisplayTime(t *testing.T) {
 
 func TestFormatRankListFallsBackWithoutResolver(t *testing.T) {
 	chat := &telebot.Chat{ID: testChatID, Type: telebot.ChatSuperGroup}
-	out := FormatRankList([]models.UserStats{{UserID: 9, RescueCount: 1}}, chat, "群", nil)
+	out := FormatRankList([]models.UserStats{{UserID: 9, RescueCount: 1}}, chat, "群", "本周", nil)
 	if !strings.Contains(out, "用户 9") {
 		t.Errorf("FormatRankList() = %q, want fallback name", out)
 	}
@@ -1083,7 +1083,7 @@ func TestFormatRankListEscapesResolvedNames(t *testing.T) {
 	resolver.Observe(&telebot.User{ID: 1, FirstName: "<Alice&Bob>"})
 	chat := &telebot.Chat{ID: testChatID, Type: telebot.ChatSuperGroup}
 
-	out := FormatRankList([]models.UserStats{{UserID: 1, RescueCount: 1}}, chat, "群", resolver)
+	out := FormatRankList([]models.UserStats{{UserID: 1, RescueCount: 1}}, chat, "群", "本周", resolver)
 	if strings.Contains(out, "<Alice&Bob>") {
 		t.Errorf("FormatRankList() contains unescaped name: %q", out)
 	}
@@ -1093,8 +1093,38 @@ func TestFormatRankListEscapesResolvedNames(t *testing.T) {
 }
 
 func TestFormatRankListEmpty(t *testing.T) {
-	out := FormatRankList(nil, &telebot.Chat{ID: testChatID}, "群", names.New(nil))
+	out := FormatRankList(nil, &telebot.Chat{ID: testChatID}, "群", "本周", names.New(nil))
 	if !strings.Contains(out, "暂无火星记录") {
 		t.Errorf("FormatRankList() = %q, want empty message", out)
+	}
+}
+
+func TestFormatRankListUsesPeriodLabel(t *testing.T) {
+	chat := &telebot.Chat{ID: testChatID}
+	for _, label := range []string{"本月", "总榜"} {
+		out := FormatRankList(nil, chat, "群", label, names.New(nil))
+		if !strings.Contains(out, label) {
+			t.Errorf("FormatRankList(%q) = %q, want period label", label, out)
+		}
+		out = FormatRankList([]models.UserStats{{UserID: 1, RescueCount: 1}}, chat, "群", label, names.New(nil))
+		if !strings.Contains(out, "（"+label+"）") {
+			t.Errorf("FormatRankList(%q) = %q, want period in header", label, out)
+		}
+	}
+}
+
+func TestFormatUserStats(t *testing.T) {
+	loc := time.FixedZone("CST", 8*60*60)
+	last := time.Date(2026, 11, 4, 12, 30, 0, 0, time.UTC)
+
+	out := FormatUserStats(3, 5, 9, last, loc)
+	for _, want := range []string{"本周：3 次", "本月：5 次", "累计：9 次", "2026-11-04 20:30"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("FormatUserStats() = %q, want containing %q", out, want)
+		}
+	}
+
+	if out := FormatUserStats(0, 0, 0, time.Time{}, loc); !strings.Contains(out, "还没有火星记录") {
+		t.Errorf("FormatUserStats(empty) = %q, want empty message", out)
 	}
 }
