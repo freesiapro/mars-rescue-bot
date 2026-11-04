@@ -1049,3 +1049,52 @@ func TestProcessorMediaSkipsForwardedAndMissingUniqueID(t *testing.T) {
 		t.Errorf("records = %d, want 0", records)
 	}
 }
+
+func TestFormatRankListResolvesNamesAtDisplayTime(t *testing.T) {
+	resolver := names.New(nil)
+	resolver.Observe(&telebot.User{ID: 1, FirstName: "Alice"})
+	chat := &telebot.Chat{ID: testChatID, Type: telebot.ChatSuperGroup}
+	stats := []models.UserStats{
+		{UserID: 1, RescueCount: 3},
+		{UserID: 2, RescueCount: 2},
+	}
+
+	out := FormatRankList(stats, chat, "测试群", resolver)
+	for _, want := range []string{"Alice", "用户 2", "3 次", "2 次", "测试群"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("FormatRankList() = %q, want containing %q", out, want)
+		}
+	}
+	if strings.Contains(out, "条不同内容") {
+		t.Errorf("FormatRankList() = %q, should count occurrences, not distinct contents", out)
+	}
+}
+
+func TestFormatRankListFallsBackWithoutResolver(t *testing.T) {
+	chat := &telebot.Chat{ID: testChatID, Type: telebot.ChatSuperGroup}
+	out := FormatRankList([]models.UserStats{{UserID: 9, RescueCount: 1}}, chat, "群", nil)
+	if !strings.Contains(out, "用户 9") {
+		t.Errorf("FormatRankList() = %q, want fallback name", out)
+	}
+}
+
+func TestFormatRankListEscapesResolvedNames(t *testing.T) {
+	resolver := names.New(nil)
+	resolver.Observe(&telebot.User{ID: 1, FirstName: "<Alice&Bob>"})
+	chat := &telebot.Chat{ID: testChatID, Type: telebot.ChatSuperGroup}
+
+	out := FormatRankList([]models.UserStats{{UserID: 1, RescueCount: 1}}, chat, "群", resolver)
+	if strings.Contains(out, "<Alice&Bob>") {
+		t.Errorf("FormatRankList() contains unescaped name: %q", out)
+	}
+	if !strings.Contains(out, "&lt;Alice&amp;Bob&gt;") {
+		t.Errorf("FormatRankList() = %q, want escaped name", out)
+	}
+}
+
+func TestFormatRankListEmpty(t *testing.T) {
+	out := FormatRankList(nil, &telebot.Chat{ID: testChatID}, "群", names.New(nil))
+	if !strings.Contains(out, "暂无火星记录") {
+		t.Errorf("FormatRankList() = %q, want empty message", out)
+	}
+}

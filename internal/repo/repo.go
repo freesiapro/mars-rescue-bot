@@ -219,28 +219,14 @@ func (r *Repo) HasSenderForwarded(recordID uint64, senderID int64) (bool, error)
 	return count > 0, nil
 }
 
-func (r *Repo) UpsertUserStats(userID int64, username, firstName string) error {
-	stats := models.UserStats{UserID: userID, Username: username, FirstName: firstName}
-
-	updates := make(map[string]interface{})
-	if username != "" {
-		updates["username"] = username
-	}
-	if firstName != "" {
-		updates["first_name"] = firstName
-	}
-
-	onConflict := clause.OnConflict{
-		Columns: []clause.Column{{Name: "user_id"}},
-	}
-	if len(updates) > 0 {
-		updates["updated_at"] = time.Now()
-		onConflict.DoUpdates = clause.Assignments(updates)
-	} else {
-		onConflict.DoNothing = true
-	}
-
-	if err := r.db.Clauses(onConflict).Create(&stats).Error; err != nil {
+// UpsertUserStats 确保 user_stats 中存在该用户的 ID 行。
+// 不写入 username/first_name：姓名只在进程内缓存，展示时实时解析。
+func (r *Repo) UpsertUserStats(userID int64) error {
+	stats := models.UserStats{UserID: userID}
+	if err := r.db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "user_id"}},
+		DoNothing: true,
+	}).Create(&stats).Error; err != nil {
 		return fmt.Errorf("upsert user stats: %w", err)
 	}
 	return nil
@@ -254,13 +240,13 @@ func (r *Repo) IncrementUserCount(userID int64) error {
 
 // GetTopRescuers 返回 since 之后、按“出现次数”统计的群排行榜。
 // 每次出现（包括第 1 次和同一用户重复发送）都会写入 forward_logs，因此直接 COUNT(*)。
+// 不 JOIN user_stats：排行榜只依赖 sender_id，姓名由调用方在展示时解析。
 func (r *Repo) GetTopRescuers(chatID int64, since time.Time, limit int) ([]models.UserStats, error) {
 	var stats []models.UserStats
 	err := r.db.Raw(`
-		SELECT u.user_id, u.username, u.first_name, COUNT(*) as rescue_count
+		SELECT l.sender_id AS user_id, COUNT(*) as rescue_count
 		FROM forward_logs l
 		JOIN forward_records r ON l.record_id = r.id
-		JOIN user_stats u ON l.sender_id = u.user_id
 		WHERE r.chat_id = ? AND l.created_at >= ?
 		GROUP BY l.sender_id
 		ORDER BY rescue_count DESC, l.sender_id ASC

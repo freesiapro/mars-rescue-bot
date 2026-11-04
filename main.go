@@ -50,21 +50,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	slog.Info("已连接到 Telegram",
-		"bot_id", bot.Me.ID,
-		"bot_username", bot.Me.Username,
-		"bot_name", bot.Me.FirstName,
-	)
+	slog.Info("已连接到 Telegram", "bot_id", bot.Me.ID)
 
 	bot.Use(logger.TraceMiddleware)
 
 	db := database.DB
 	r := repo.New(db)
+	resolver := names.New(bot)
 
-	cmdHandler := handler.NewCommandHandler(r, handler.NewAdminChecker(bot))
+	cmdHandler := handler.NewCommandHandler(r, handler.NewAdminChecker(bot), resolver)
 	cmdHandler.Register(bot)
 
-	processor := botengine.NewProcessor(r, config.DedupSecret, names.New(bot), config.StatsLocation())
+	processor := botengine.NewProcessor(r, config.DedupSecret, resolver, config.StatsLocation())
 	msgHandler := handler.NewMessageHandler(processor)
 	msgHandler.Register(bot)
 

@@ -145,43 +145,32 @@ func TestHasSenderForwardedAndIncrementAndLog(t *testing.T) {
 	}
 }
 
-func TestUpsertUserStats(t *testing.T) {
+func TestUpsertUserStatsStoresOnlyUserID(t *testing.T) {
 	r := setupRepo(t)
 
-	if err := r.UpsertUserStats(7, "alice", "Alice"); err != nil {
+	if err := r.UpsertUserStats(7); err != nil {
 		t.Fatalf("insert user stats: %v", err)
+	}
+	if err := r.UpsertUserStats(7); err != nil {
+		t.Fatalf("duplicate user stats: %v", err)
 	}
 
 	var stats models.UserStats
 	if err := r.db.First(&stats, "user_id = ?", 7).Error; err != nil {
 		t.Fatalf("load inserted stats: %v", err)
 	}
-	if stats.Username != "alice" || stats.FirstName != "Alice" {
-		t.Errorf("inserted stats = %+v", stats)
+	if stats.UserID != 7 {
+		t.Errorf("UserID = %d, want 7", stats.UserID)
+	}
+	if stats.Username != "" || stats.FirstName != "" {
+		t.Errorf("stored names = %q/%q, want empty", stats.Username, stats.FirstName)
 	}
 
-	// 空字段不应覆盖已有值。
-	if err := r.UpsertUserStats(7, "alice2", ""); err != nil {
-		t.Fatalf("update user stats: %v", err)
+	var count int64
+	if err := r.db.Model(&models.UserStats{}).Count(&count).Error; err != nil {
+		t.Fatalf("count user stats: %v", err)
 	}
-	if err := r.db.First(&stats, "user_id = ?", 7).Error; err != nil {
-		t.Fatalf("load updated stats: %v", err)
-	}
-	if stats.Username != "alice2" {
-		t.Errorf("Username = %q, want alice2", stats.Username)
-	}
-	if stats.FirstName != "Alice" {
-		t.Errorf("FirstName = %q, want preserved Alice", stats.FirstName)
-	}
-
-	// 两个字段都为空时保持原值。
-	if err := r.UpsertUserStats(7, "", ""); err != nil {
-		t.Fatalf("empty update user stats: %v", err)
-	}
-	if err := r.db.First(&stats, "user_id = ?", 7).Error; err != nil {
-		t.Fatalf("load stats after empty update: %v", err)
-	}
-	if stats.Username != "alice2" || stats.FirstName != "Alice" {
-		t.Errorf("stats after empty update = %+v", stats)
+	if count != 1 {
+		t.Errorf("user_stats rows = %d, want 1", count)
 	}
 }

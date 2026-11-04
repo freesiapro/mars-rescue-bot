@@ -101,11 +101,34 @@ func Init() error {
 }
 
 func autoMigrate() error {
-	return DB.AutoMigrate(
+	if err := DB.AutoMigrate(
 		&models.ForwardRecord{},
 		&models.ForwardLog{},
 		&models.UserStats{},
 		&models.ChatSettings{},
 		&models.ChatIgnoredUser{},
-	)
+	); err != nil {
+		return err
+	}
+	return clearLegacyUserNames(DB)
+}
+
+// clearLegacyUserNames 清空旧版本写入 user_stats 的用户名和名字。
+// 列本身保留，以兼容旧数据库；新数据不再写入这些列。
+func clearLegacyUserNames(db *gorm.DB) error {
+	if !db.Migrator().HasColumn(&models.UserStats{}, "Username") {
+		return nil
+	}
+	result := db.Exec(`
+		UPDATE user_stats
+		SET username = '', first_name = ''
+		WHERE COALESCE(username, '') <> '' OR COALESCE(first_name, '') <> ''
+	`)
+	if result.Error != nil {
+		return fmt.Errorf("clear legacy user names: %w", result.Error)
+	}
+	if result.RowsAffected > 0 {
+		slog.Info("cleared legacy user names", "rows", result.RowsAffected)
+	}
+	return nil
 }

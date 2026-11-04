@@ -118,3 +118,64 @@ func TestAutoMigrateKeepsLegacyRowsPendingNull(t *testing.T) {
 		t.Errorf("legacy first_sender_id = %d, want 0", firstSenderID)
 	}
 }
+
+// TestClearLegacyUserNames 用旧表结构建库并写入姓名，模拟升级流程：
+// AutoMigrate 保留列，迁移逻辑清空历史 username/first_name，但保留用户行。
+func TestClearLegacyUserNames(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy-names.db")
+	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get underlying sql.DB: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
+	if err := db.Exec(`CREATE TABLE user_stats (
+		user_id integer PRIMARY KEY,
+		username text,
+		first_name text,
+		rescue_count integer DEFAULT 0,
+		updated_at datetime
+	)`).Error; err != nil {
+		t.Fatalf("create legacy user_stats: %v", err)
+	}
+	if err := db.Exec(
+		`INSERT INTO user_stats (user_id, username, first_name, rescue_count) VALUES (?, ?, ?, ?)`,
+		7, "alice", "Alice", 3,
+	).Error; err != nil {
+		t.Fatalf("insert legacy user_stats: %v", err)
+	}
+
+	if err := db.AutoMigrate(&models.UserStats{}); err != nil {
+		t.Fatalf("AutoMigrate() error = %v", err)
+	}
+	if err := clearLegacyUserNames(db); err != nil {
+		t.Fatalf("clearLegacyUserNames() error = %v", err)
+	}
+
+	var row struct {
+		UserID      int64
+		Username    string
+		FirstName   string
+		RescueCount int
+	}
+	if err := db.Raw(`SELECT user_id, username, first_name, rescue_count FROM user_stats WHERE user_id = ?`, 7).Scan(&row).Error; err != nil {
+		t.Fatalf("read migrated user_stats: %v", err)
+	}
+	if row.UserID != 7 || row.RescueCount != 3 {
+		t.Errorf("migrated row = %+v, want user 7 with count 3", row)
+	}
+	if row.Username != "" || row.FirstName != "" {
+		t.Errorf("names after migration = %q/%q, want empty", row.Username, row.FirstName)
+	}
+	for _, column := range []string{"username", "first_name"} {
+		if !db.Migrator().HasColumn(&models.UserStats{}, column) {
+			t.Errorf("column %q was dropped, want retained for compatibility", column)
+		}
+	}
+}
