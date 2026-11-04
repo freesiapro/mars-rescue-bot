@@ -185,7 +185,7 @@ func TestChatIgnoredUsers(t *testing.T) {
 	}
 }
 
-func TestGetTopRescuersDistinctWithinPeriod(t *testing.T) {
+func TestGetTopRescuersCountsEveryOccurrence(t *testing.T) {
 	r := setupRepo(t)
 	const chatID = int64(-100)
 	now := time.Now()
@@ -200,11 +200,20 @@ func TestGetTopRescuersDistinctWithinPeriod(t *testing.T) {
 		}
 	}
 
-	rec1, _, _ := r.FindOrCreateRecord(chatID, "k1", 10)
-	rec2, _, _ := r.FindOrCreateRecord(chatID, "k2", 11)
-	rec3, _, _ := r.FindOrCreateRecord(chatID, "k3", 12)
-	oldRec, _, _ := r.FindOrCreateRecord(chatID, "old", 13)
-	otherChatRec, _, _ := r.FindOrCreateRecord(-200, "other", 14)
+	createRecord := func(chat int64, key string, msgID int) *models.ForwardRecord {
+		t.Helper()
+		rec := &models.ForwardRecord{ChatID: chat, ContentKey: key, FirstTargetMsgID: msgID}
+		if err := r.db.Create(rec).Error; err != nil {
+			t.Fatalf("create record %q: %v", key, err)
+		}
+		return rec
+	}
+
+	rec1 := createRecord(chatID, "k1", 10)
+	rec2 := createRecord(chatID, "k2", 11)
+	rec3 := createRecord(chatID, "k3", 12)
+	oldRec := createRecord(chatID, "old", 13)
+	otherChatRec := createRecord(-200, "other", 14)
 
 	mustCreateLog := func(recID uint64, senderID int64, at time.Time) {
 		t.Helper()
@@ -218,13 +227,13 @@ func TestGetTopRescuersDistinctWithinPeriod(t *testing.T) {
 		}
 	}
 
-	// user 1：rec1 重复两次只算 1；rec2 再算 1。
+	// user 1：rec1 出现两次算 2，rec2 再算 1，共 3。
 	mustCreateLog(rec1.ID, 1, now.Add(-time.Hour))
 	mustCreateLog(rec1.ID, 1, now.Add(-2*time.Hour))
 	mustCreateLog(rec2.ID, 1, now.Add(-time.Hour))
 	// 周期外的记录不应计入。
 	mustCreateLog(oldRec.ID, 1, now.Add(-10*24*time.Hour))
-	// user 2：rec1、rec3 各算 1。
+	// user 2：rec1、rec3 各算 1，共 2。
 	mustCreateLog(rec1.ID, 2, now.Add(-time.Hour))
 	mustCreateLog(rec3.ID, 2, now.Add(-time.Hour))
 	// 其他群不应计入。
@@ -238,10 +247,10 @@ func TestGetTopRescuersDistinctWithinPeriod(t *testing.T) {
 		t.Fatalf("stats = %+v, want 2 users", stats)
 	}
 	// 同分时按 user_id 升序。
-	if stats[0].UserID != 1 || stats[0].RescueCount != 2 {
-		t.Errorf("first = %+v, want user 1 with 2 distinct records", stats[0])
+	if stats[0].UserID != 1 || stats[0].RescueCount != 3 {
+		t.Errorf("first = %+v, want user 1 with 3 occurrences", stats[0])
 	}
 	if stats[1].UserID != 2 || stats[1].RescueCount != 2 {
-		t.Errorf("second = %+v, want user 2 with 2 distinct records", stats[1])
+		t.Errorf("second = %+v, want user 2 with 2 occurrences", stats[1])
 	}
 }
