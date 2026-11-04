@@ -24,6 +24,24 @@ func AnalyzeMessageContent(msg *telebot.Message, secret string) MessageContent {
 	if msg == nil {
 		return MessageContent{SkipDecision: DecisionNoContent}
 	}
+
+	text := messagePlainText(msg)
+
+	// 命令最先豁免，包括转发和频道转发的命令文本。
+	if strings.HasPrefix(text, "/") {
+		return MessageContent{SkipDecision: DecisionCommand}
+	}
+
+	// 只有 @ 提及的消息不参与判重，对所有来源生效：普通消息、非频道转发、
+	// 频道转发和富文本。这一步必须在频道/媒体键之前，否则频道转发的纯 @
+	// 会先拿到 channel 键并入库。带媒体（含富文本媒体块）的消息不是“纯 @”，
+	// 跳过本分支，按原有频道/媒体规则处理。
+	// 有其它实际内容的消息仍走原规则，提及部分继续参与内容键（不在这里剔除），
+	// 避免 "@Alice 你好" 因为去掉提及而跌破 4 字符下限被误跳过。
+	if !messageHasNonTextPayload(msg) && messageMentionOnly(msg) {
+		return MessageContent{SkipDecision: DecisionMentionOnly}
+	}
+
 	if key, ok := channelForwardKey(msg); ok {
 		return MessageContent{
 			Key:     key,
@@ -46,16 +64,18 @@ func AnalyzeMessageContent(msg *telebot.Message, secret string) MessageContent {
 		return MessageContent{SkipDecision: DecisionNoContent}
 	}
 	// 音频不在支持范围；没有文本时按内容判断是未支持类型还是空消息。
-	text := messagePlainText(msg)
-	if msg.Audio != nil || text == "" {
+	if msg.Audio != nil {
 		if messageHasContent(msg) {
 			return MessageContent{SkipDecision: DecisionUnsupportedType}
 		}
 		return MessageContent{SkipDecision: DecisionNoContent}
 	}
 
-	if strings.HasPrefix(text, "/") {
-		return MessageContent{SkipDecision: DecisionCommand}
+	if text == "" {
+		if messageHasContent(msg) {
+			return MessageContent{SkipDecision: DecisionUnsupportedType}
+		}
+		return MessageContent{SkipDecision: DecisionNoContent}
 	}
 
 	normalized := textnorm.Normalize(text)

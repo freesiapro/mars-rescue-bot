@@ -17,6 +17,7 @@ const (
 	DecisionAdjacentRepeatExempt = "adjacent_repeat_exempt"
 	DecisionShortTextSkipped     = "short_text_skipped"
 	DecisionRepeatedCharSkipped  = "repeated_char_skipped"
+	DecisionMentionOnly          = "mention_only"
 	DecisionBotIgnored           = "bot_ignored"
 	// DecisionForwardFromBotIgnored 是保留值：当前没有“转发来源是 bot”这一独立分支。
 	// 只有 msg.Sender.IsBot（发送者本身是 bot）会被忽略；人类转发 bot 内容时

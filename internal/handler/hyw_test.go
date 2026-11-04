@@ -538,6 +538,54 @@ func TestHYWSkipReasons(t *testing.T) {
 			want: "复读",
 		},
 		{
+			name: "mention only",
+			target: func() *telebot.Message {
+				msg := hywTextMessage(hywTestChatID, 1, "@Bob", 15)
+				msg.Entities = telebot.Entities{
+					{Type: telebot.EntityMention, Offset: 0, Length: 4},
+				}
+				return msg
+			},
+			want: "只有 @",
+		},
+		{
+			name: "mention only rich",
+			target: func() *telebot.Message {
+				msg := hywTextMessage(hywTestChatID, 1, "", 16)
+				msg.RichMessage = &telebot.RichMessage{
+					Blocks: []telebot.RichBlock{{
+						Type: telebot.RichBlockParagraph,
+						Text: &telebot.RichText{
+							Kind: telebot.RichTextArray,
+							Parts: []telebot.RichText{{
+								Kind:     telebot.RichTextEntity,
+								Type:     telebot.RichMention,
+								Username: "Bob",
+							}},
+						},
+					}},
+				}
+				return msg
+			},
+			want: "只有 @",
+		},
+		{
+			name: "mention only channel forward",
+			target: func() *telebot.Message {
+				msg := hywTextMessage(hywTestChatID, 1, "@Bob", 17)
+				msg.Entities = telebot.Entities{
+					{Type: telebot.EntityMention, Offset: 0, Length: 4},
+				}
+				msg.Origin = &telebot.MessageOrigin{
+					Type:      "channel",
+					Chat:      &telebot.Chat{ID: -1001234500000, Type: telebot.ChatChannel},
+					MessageID: 9201,
+				}
+				return msg
+			},
+			want: "只有 @",
+		},
+		{
 			name: "command",
 			target: func() *telebot.Message {
 				return hywTextMessage(hywTestChatID, 1, "/mars_rank", 12)

@@ -79,6 +79,8 @@ func hywSkipReason(decision string, presentFields []string) string {
 		return "📒 这是 bot 发的，火星小本本不收。"
 	case bot.DecisionCommand:
 		return "📒 这是命令，不是聊天内容，小本本不收。"
+	case bot.DecisionMentionOnly:
+		return "📒 这条只有 @，不检测也不记录。"
 	case bot.DecisionShortTextSkipped:
 		return "📒 这条太短（或纯链接/表情），够不上火星标准。"
 	case bot.DecisionRepeatedCharSkipped:
