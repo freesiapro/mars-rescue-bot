@@ -18,7 +18,11 @@ func New(db *gorm.DB) *Repo {
 	return &Repo{db: db}
 }
 
-func (r *Repo) FindOrCreateRecord(chatID int64, key string, targetMsgID int) (*models.ForwardRecord, bool, error) {
+// FindOrCreateRecord 返回 (chat, key) 对应的记录。
+//
+// 首次出现时会在同一事务内创建记录并写入第 1 条 ForwardLog，保证“每次出现
+// 都计入排行榜”的统计口径；后续出现由 DecideAndLog 负责计数和写日志。
+func (r *Repo) FindOrCreateRecord(chatID int64, key string, targetMsgID int, senderID int64) (*models.ForwardRecord, bool, error) {
 	pending := true
 	rec := models.ForwardRecord{
 		ChatID:           chatID,
@@ -26,24 +30,37 @@ func (r *Repo) FindOrCreateRecord(chatID int64, key string, targetMsgID int) (*m
 		FirstTargetMsgID: targetMsgID,
 		PendingPair:      &pending,
 	}
+	isNew := false
 
-	// INSERT ... ON CONFLICT DO NOTHING 依赖 (chat_id, content_key) 唯一索引，
-	// 把“查不到再创建”合并为单条原子语句，避免并发下重复插入。
-	result := r.db.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "chat_id"}, {Name: "content_key"}},
-		DoNothing: true,
-	}).Create(&rec)
-	if result.Error != nil {
-		return nil, false, fmt.Errorf("create record: %w", result.Error)
-	}
-	if result.RowsAffected > 0 {
-		return &rec, true, nil
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		// INSERT ... ON CONFLICT DO NOTHING 依赖 (chat_id, content_key) 唯一索引，
+		// 把“查不到再创建”合并为单条原子语句，避免并发下重复插入。
+		result := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "chat_id"}, {Name: "content_key"}},
+			DoNothing: true,
+		}).Create(&rec)
+		if result.Error != nil {
+			return fmt.Errorf("create record: %w", result.Error)
+		}
+		if result.RowsAffected == 0 {
+			if err := tx.Where("chat_id = ? AND content_key = ?", chatID, key).First(&rec).Error; err != nil {
+				return fmt.Errorf("find record: %w", err)
+			}
+			return nil
+		}
+		isNew = true
+
+		log := models.ForwardLog{RecordID: rec.ID, SenderID: senderID, TargetMsgID: targetMsgID}
+		if err := tx.Create(&log).Error; err != nil {
+			return fmt.Errorf("create first log: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, false, err
 	}
 
-	if err := r.db.Where("chat_id = ? AND content_key = ?", chatID, key).First(&rec).Error; err != nil {
-		return nil, false, fmt.Errorf("find record: %w", err)
-	}
-	return &rec, false, nil
+	return &rec, isNew, nil
 }
 
 func (r *Repo) IncrementAndLog(rec *models.ForwardRecord, targetMsgID int, senderID int64) error {
@@ -234,12 +251,12 @@ func (r *Repo) IncrementUserCount(userID int64) error {
 		UpdateColumn("rescue_count", gorm.Expr("rescue_count + 1")).Error
 }
 
-// GetTopRescuers 返回 since 之后、按“不同内容条数”统计的群排行榜。
-// 同一用户重复发送同一内容只计一次，避免刷同一句话霸榜。
+// GetTopRescuers 返回 since 之后、按“出现次数”统计的群排行榜。
+// 每次出现（包括第 1 次和同一用户重复发送）都会写入 forward_logs，因此直接 COUNT(*)。
 func (r *Repo) GetTopRescuers(chatID int64, since time.Time, limit int) ([]models.UserStats, error) {
 	var stats []models.UserStats
 	err := r.db.Raw(`
-		SELECT u.user_id, u.username, u.first_name, COUNT(DISTINCT l.record_id) as rescue_count
+		SELECT u.user_id, u.username, u.first_name, COUNT(*) as rescue_count
 		FROM forward_logs l
 		JOIN forward_records r ON l.record_id = r.id
 		JOIN user_stats u ON l.sender_id = u.user_id

@@ -112,7 +112,7 @@ func (p *Processor) tryChannelForward(msg *telebot.Message) (*duplicateEvent, er
 	}
 
 	key := fmt.Sprintf("channel:%d:%d", msg.OriginalChat.ID, msg.OriginalMessageID)
-	rec, isNew, err := p.repo.FindOrCreateRecord(msg.Chat.ID, key, msg.ID)
+	rec, isNew, err := p.repo.FindOrCreateRecord(msg.Chat.ID, key, msg.ID, msg.Sender.ID)
 	if err != nil || isNew {
 		return nil, err
 	}
@@ -142,7 +142,7 @@ func (p *Processor) tryTextDuplicate(msg *telebot.Message) (*duplicateEvent, err
 	}
 
 	key := textContentKey(p.dedupSecret, msg.Text)
-	rec, isNew, err := p.repo.FindOrCreateRecord(msg.Chat.ID, key, msg.ID)
+	rec, isNew, err := p.repo.FindOrCreateRecord(msg.Chat.ID, key, msg.ID, msg.Sender.ID)
 	if err != nil || isNew {
 		return nil, err
 	}

@@ -96,6 +96,14 @@ func TestProcessorFirstMessageNoReply(t *testing.T) {
 	if count != 1 {
 		t.Errorf("record count = %d, want 1", count)
 	}
+
+	var logs int64
+	if err := db.Model(&models.ForwardLog{}).Count(&logs).Error; err != nil {
+		t.Fatalf("count logs: %v", err)
+	}
+	if logs != 1 {
+		t.Errorf("log count = %d, want 1 for the first occurrence", logs)
+	}
 }
 
 // 决策 1：自己重复发同一内容也算火星并提醒。
@@ -143,8 +151,8 @@ func TestProcessorSelfRepeatRepliesWithMention(t *testing.T) {
 	if err := db.Model(&models.ForwardLog{}).Count(&logs).Error; err != nil {
 		t.Fatalf("count logs: %v", err)
 	}
-	if logs != 1 {
-		t.Errorf("log count = %d, want 1 duplicate log", logs)
+	if logs != 2 {
+		t.Errorf("log count = %d, want 2 (first occurrence + duplicate)", logs)
 	}
 }
 
@@ -231,8 +239,8 @@ func TestProcessorCooldownSuppressesReplyButStillRecords(t *testing.T) {
 	if err := db.Model(&models.ForwardLog{}).Count(&logs).Error; err != nil {
 		t.Fatalf("count logs: %v", err)
 	}
-	if logs != 3 {
-		t.Errorf("log count = %d, want 3 (all duplicates recorded)", logs)
+	if logs != 4 {
+		t.Errorf("log count = %d, want 4 (every occurrence is recorded)", logs)
 	}
 }
 
@@ -369,9 +377,9 @@ func TestProcessorPairingAlertsEverySecondOccurrence(t *testing.T) {
 		if err := db.Model(&models.ForwardLog{}).Count(&logs).Error; err != nil {
 			t.Fatalf("occurrence %d count logs: %v", i+1, err)
 		}
-		// 第一次出现只建记录，从第二次开始每次出现都写日志（与原有统计一致）。
-		if logs != int64(i) {
-			t.Errorf("after occurrence %d logs = %d, want %d", i+1, logs, i)
+		// 每次出现都写日志：第 1 次出现也计入排行榜。
+		if logs != int64(i+1) {
+			t.Errorf("after occurrence %d logs = %d, want %d", i+1, logs, i+1)
 		}
 	}
 
@@ -495,8 +503,8 @@ func TestProcessorSendFailureDoesNotCancelPair(t *testing.T) {
 	if err := db.Model(&models.ForwardLog{}).Count(&logs).Error; err != nil {
 		t.Fatalf("count logs: %v", err)
 	}
-	if logs != 3 {
-		t.Errorf("logs = %d, want 3", logs)
+	if logs != 4 {
+		t.Errorf("logs = %d, want 4", logs)
 	}
 }
 
@@ -537,8 +545,8 @@ func TestProcessorCooldownSuppressionDoesNotCancelPair(t *testing.T) {
 	if err := db.Model(&models.ForwardLog{}).Count(&logs).Error; err != nil {
 		t.Fatalf("count logs: %v", err)
 	}
-	if logs != 4 {
-		t.Errorf("logs = %d, want 4 (every occurrence after the first is logged)", logs)
+	if logs != 5 {
+		t.Errorf("logs = %d, want 5 (every occurrence is logged)", logs)
 	}
 }
 
@@ -586,8 +594,8 @@ func TestProcessorConcurrentOccurrencesAlertOncePerPair(t *testing.T) {
 	if err := db.Model(&models.ForwardLog{}).Count(&logs).Error; err != nil {
 		t.Fatalf("count logs: %v", err)
 	}
-	if logs != concurrent {
-		t.Errorf("logs = %d, want %d", logs, concurrent)
+	if logs != concurrent+1 {
+		t.Errorf("logs = %d, want %d (all occurrences)", logs, concurrent+1)
 	}
 }
 

@@ -22,7 +22,7 @@ func setupRepo(t *testing.T) *Repo {
 func TestFindOrCreateRecord(t *testing.T) {
 	r := setupRepo(t)
 
-	rec, isNew, err := r.FindOrCreateRecord(-100, "key", 10)
+	rec, isNew, err := r.FindOrCreateRecord(-100, "key", 10, 42)
 	if err != nil {
 		t.Fatalf("first FindOrCreateRecord: %v", err)
 	}
@@ -33,7 +33,22 @@ func TestFindOrCreateRecord(t *testing.T) {
 		t.Error("first call: record ID not populated")
 	}
 
-	again, isNew, err := r.FindOrCreateRecord(-100, "key", 99)
+	var firstLogs int64
+	if err := r.db.Model(&models.ForwardLog{}).Where("record_id = ?", rec.ID).Count(&firstLogs).Error; err != nil {
+		t.Fatalf("count first logs: %v", err)
+	}
+	if firstLogs != 1 {
+		t.Errorf("first logs = %d, want 1", firstLogs)
+	}
+	var firstLog models.ForwardLog
+	if err := r.db.Where("record_id = ?", rec.ID).First(&firstLog).Error; err != nil {
+		t.Fatalf("load first log: %v", err)
+	}
+	if firstLog.SenderID != 42 || firstLog.TargetMsgID != 10 {
+		t.Errorf("first log = %+v, want sender 42 target 10", firstLog)
+	}
+
+	again, isNew, err := r.FindOrCreateRecord(-100, "key", 99, 7)
 	if err != nil {
 		t.Fatalf("second FindOrCreateRecord: %v", err)
 	}
@@ -46,12 +61,20 @@ func TestFindOrCreateRecord(t *testing.T) {
 	if again.FirstTargetMsgID != 10 {
 		t.Errorf("second call: FirstTargetMsgID = %d, want original 10", again.FirstTargetMsgID)
 	}
+
+	var logs int64
+	if err := r.db.Model(&models.ForwardLog{}).Where("record_id = ?", rec.ID).Count(&logs).Error; err != nil {
+		t.Fatalf("count logs: %v", err)
+	}
+	if logs != 1 {
+		t.Errorf("logs = %d, want 1 (second call must not log)", logs)
+	}
 }
 
 func TestHasSenderForwardedAndIncrementAndLog(t *testing.T) {
 	r := setupRepo(t)
 
-	rec, _, err := r.FindOrCreateRecord(-100, "key", 10)
+	rec, _, err := r.FindOrCreateRecord(-100, "key", 10, 99)
 	if err != nil {
 		t.Fatalf("FindOrCreateRecord: %v", err)
 	}
@@ -100,11 +123,19 @@ func TestHasSenderForwardedAndIncrementAndLog(t *testing.T) {
 	}
 
 	var logCount int64
-	if err := r.db.Model(&models.ForwardLog{}).Where("record_id = ?", rec.ID).Count(&logCount).Error; err != nil {
+	if err := r.db.Model(&models.ForwardLog{}).Where("record_id = ? AND sender_id = ?", rec.ID, 42).Count(&logCount).Error; err != nil {
 		t.Fatalf("count logs: %v", err)
 	}
 	if logCount != 2 {
-		t.Errorf("log count = %d, want 2", logCount)
+		t.Errorf("sender 42 log count = %d, want 2", logCount)
+	}
+
+	var totalLogs int64
+	if err := r.db.Model(&models.ForwardLog{}).Where("record_id = ?", rec.ID).Count(&totalLogs).Error; err != nil {
+		t.Fatalf("count total logs: %v", err)
+	}
+	if totalLogs != 3 {
+		t.Errorf("total log count = %d, want 3 (first occurrence + two increments)", totalLogs)
 	}
 }
 
