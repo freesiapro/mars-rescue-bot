@@ -114,7 +114,9 @@ func (p *Processor) ProcessMessage(msg *telebot.Message, traceID string, reply f
 type duplicateEvent struct {
 	record *models.ForwardRecord
 	kind   string
-	sender *telebot.User
+	// mediaSubject 是媒体提醒里的主语（这张图片、这段视频…），只影响文案。
+	mediaSubject string
+	sender       *telebot.User
 	// seq 是本次出现后的 forward_count，用于提醒发送失败时条件回滚配对状态。
 	seq int64
 }
@@ -136,25 +138,30 @@ func (p *Processor) tryMediaDuplicate(msg *telebot.Message) (*duplicateEvent, er
 	if msg.IsForwarded() {
 		return nil, nil
 	}
-	key, ok := mediaContentKey(msg)
+	key, subject, ok := mediaContentKey(msg)
 	if !ok {
 		return nil, nil
 	}
-	return p.logOccurrence(msg, key, "media")
+	event, err := p.logOccurrence(msg, key, "media")
+	if event != nil {
+		event.mediaSubject = subject
+	}
+	return event, err
 }
 
-func mediaContentKey(msg *telebot.Message) (string, bool) {
+// mediaContentKey 返回去重键和提醒文案里的主语。主语只影响展示，不参与去重。
+func mediaContentKey(msg *telebot.Message) (key, subject string, ok bool) {
 	switch {
 	case msg.Photo != nil && msg.Photo.UniqueID != "":
-		return "media:photo:" + msg.Photo.UniqueID, true
+		return "media:photo:" + msg.Photo.UniqueID, "这张图片", true
 	case msg.Video != nil && msg.Video.UniqueID != "":
-		return "media:video:" + msg.Video.UniqueID, true
+		return "media:video:" + msg.Video.UniqueID, "这段视频", true
 	case msg.Animation != nil && msg.Animation.UniqueID != "":
-		return "media:animation:" + msg.Animation.UniqueID, true
+		return "media:animation:" + msg.Animation.UniqueID, "这个动图", true
 	case msg.Document != nil && msg.Document.UniqueID != "":
-		return "media:document:" + msg.Document.UniqueID, true
+		return "media:document:" + msg.Document.UniqueID, "这个文件", true
 	}
-	return "", false
+	return "", "", false
 }
 
 // === 场景 C：纯文本重复 ===
@@ -243,37 +250,65 @@ func (p *Processor) formatDuplicate(chat *telebot.Chat, event *duplicateEvent, m
 		who = formatMention(event.sender)
 	}
 
-	firstSender := "首发者未知"
-	firstSeen := "时间未知"
-	if event.record.FirstSenderID > 0 {
-		firstSender = p.names.Name(chat, event.record.FirstSenderID)
+	selfRepeat := event.sender != nil &&
+		event.record.FirstSenderID > 0 &&
+		event.record.FirstSenderID == event.sender.ID
+	header := fmt.Sprintf("🚨 %s，火星救援！", who)
+	if selfRepeat {
+		header = fmt.Sprintf("🚨 %s，又是你，火星救援！", who)
+	}
+
+	firstSender := "已不可考（旧记录）"
+	if id := event.record.FirstSenderID; id > 0 {
+		firstSender = p.names.Name(chat, id)
 		if firstSender == "" {
-			firstSender = fmt.Sprintf("用户 %d", event.record.FirstSenderID)
+			firstSender = fmt.Sprintf("用户 %d", id)
+		}
+		if event.sender != nil && id == event.sender.ID {
+			firstSender = "也是你"
 		}
 	}
+	firstSeen := "时间未知"
 	if !event.record.CreatedAt.IsZero() {
-		firstSeen = event.record.CreatedAt.In(p.statsLoc).Format("01-02 15:04")
+		firstSeen = event.record.CreatedAt.In(p.statsLoc).Format("2006-01-02 15:04")
 	}
-	firstSender = html.EscapeString(firstSender)
-	firstSeen = html.EscapeString(firstSeen)
-	count := event.record.ForwardCount
 
 	link, hasLink := messageLink(chat, event.record.FirstTargetMsgID)
-	linkText := ""
+	linkText := "无消息链接"
 	if hasLink {
-		linkText = fmt.Sprintf("\n<a href=\"%s\">回到首发现场</a>", html.EscapeString(link))
+		linkText = fmt.Sprintf("<a href=\"%s\">回现场</a>", html.EscapeString(link))
 	}
 
-	switch event.kind {
+	count := event.record.ForwardCount
+	prev := count - 1
+	if prev < 1 {
+		prev = 1
+	}
+	body := fmt.Sprintf("%s在本群记录中第 %d 次出现，和第 %d 次撞车，已配对抵消，下次重新开一对。",
+		event.subject(), count, prev)
+
+	firstLabel := "首发"
+	if event.kind == "channel" {
+		// 频道转发的“首发者”是把原帖第一次转发进群的人，不是原频道作者。
+		firstLabel = "首次转发"
+	}
+	return fmt.Sprintf("%s\n%s\n%s：%s · %s · %s",
+		header, body, firstLabel, html.EscapeString(firstSender), html.EscapeString(firstSeen), linkText)
+}
+
+// subject 是提醒正文的主语，必须与检测方式一致：
+// 文本经过归一化，不能声称“一字不差”；媒体按 file_unique_id 去重；频道转发按原帖识别。
+func (e *duplicateEvent) subject() string {
+	switch e.kind {
 	case "channel":
-		return fmt.Sprintf("🚨 %s 火星救援！\n这条消息最早由 %s 于 %s 转发进群，这是第 %d 次出现。%s",
-			who, firstSender, firstSeen, count, linkText)
+		return "这条频道转发"
 	case "media":
-		return fmt.Sprintf("🚨 %s 火星救援！\n这条内容最早由 %s 于 %s 发出，这是第 %d 次出现，你是第 %d 个没看聊天记录的。%s",
-			who, firstSender, firstSeen, count, count, linkText)
+		if e.mediaSubject != "" {
+			return e.mediaSubject
+		}
+		return "这条媒体内容"
 	default:
-		return fmt.Sprintf("🚨 %s 火星救援！\n这句话最早由 %s 于 %s 发出，这是第 %d 次出现，你是第 %d 个没看聊天记录的。%s",
-			who, firstSender, firstSeen, count, count, linkText)
+		return "这段内容（忽略标点、大小写等差异）"
 	}
 }
 
