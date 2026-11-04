@@ -125,19 +125,39 @@ type duplicateEvent struct {
 
 // === 场景 A：频道转发 ===
 func (p *Processor) tryChannelForward(msg *telebot.Message) (*duplicateEvent, error) {
-	if !msg.IsForwarded() || msg.OriginalChat == nil || msg.OriginalChat.Type != telebot.ChatChannel {
+	key, ok := channelForwardKey(msg)
+	if !ok {
 		return nil, nil
 	}
-
-	key := fmt.Sprintf("channel:%d:%d", msg.OriginalChat.ID, msg.OriginalMessageID)
 	return p.logOccurrence(msg, key, "channel")
+}
+
+// channelForwardKey 优先读取新版 forward_origin，再回退旧版 forward_from_chat。
+// 只有频道来源使用原帖 ID；用户/群组来源没有可用的原消息 ID，按内容去重。
+func channelForwardKey(msg *telebot.Message) (string, bool) {
+	if msg == nil {
+		return "", false
+	}
+	if msg.Origin != nil && msg.Origin.Type == "channel" && msg.Origin.Chat != nil {
+		return fmt.Sprintf("channel:%d:%d", msg.Origin.Chat.ID, msg.Origin.MessageID), true
+	}
+	if msg.OriginalChat != nil && msg.OriginalChat.Type == telebot.ChatChannel {
+		return fmt.Sprintf("channel:%d:%d", msg.OriginalChat.ID, msg.OriginalMessageID), true
+	}
+	return "", false
+}
+
+func isChannelForward(msg *telebot.Message) bool {
+	_, ok := channelForwardKey(msg)
+	return ok
 }
 
 // === 场景 B：媒体重复 ===
 // 图片取最大尺寸（telebot 已选择）的 file_unique_id；视频、动画、文件直接取其
-// file_unique_id。不下载文件，也不保存文件内容。频道转发的媒体走频道分支。
+// file_unique_id。不下载文件，也不保存文件内容。频道转发的媒体走频道分支；
+// 其他转发与手打媒体使用同一个内容键。
 func (p *Processor) tryMediaDuplicate(msg *telebot.Message) (*duplicateEvent, error) {
-	if msg.IsForwarded() {
+	if isChannelForward(msg) {
 		return nil, nil
 	}
 	key, subject, ok := mediaContentKey(msg)
@@ -168,7 +188,7 @@ func mediaContentKey(msg *telebot.Message) (key, subject string, ok bool) {
 
 // === 场景 C：纯文本重复 ===
 func (p *Processor) tryTextDuplicate(msg *telebot.Message) (*duplicateEvent, error) {
-	if msg.IsForwarded() || msg.Text == "" || msg.Photo != nil || msg.Video != nil || msg.Audio != nil || msg.Document != nil {
+	if isChannelForward(msg) || msg.Text == "" || msg.Photo != nil || msg.Video != nil || msg.Audio != nil || msg.Document != nil {
 		return nil, nil
 	}
 	// 命令不该进入去重逻辑（未注册的命令会被 telebot 交给 OnText）。
