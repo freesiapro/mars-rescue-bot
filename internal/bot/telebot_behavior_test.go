@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"gopkg.in/telebot.v3"
+	"gopkg.in/telebot.v4"
 )
 
 // newOfflineBot 创建一个不访问 Telegram 的 bot，用于在代码层验证 telebot 行为。

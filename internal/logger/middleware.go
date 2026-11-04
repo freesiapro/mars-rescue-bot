@@ -3,7 +3,7 @@ package logger
 import (
 	"log/slog"
 
-	"gopkg.in/telebot.v3"
+	"gopkg.in/telebot.v4"
 )
 
 const traceContextKey = "trace_id"

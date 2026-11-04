@@ -1,7 +1,7 @@
 package handler
 
 import (
-	"gopkg.in/telebot.v3"
+	"gopkg.in/telebot.v4"
 	"mars-rescue-bot/internal/bot"
 )
 

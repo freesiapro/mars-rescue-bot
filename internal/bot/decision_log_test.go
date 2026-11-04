@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"gopkg.in/telebot.v3"
+	"gopkg.in/telebot.v4"
 	"mars-rescue-bot/internal/models"
 	"mars-rescue-bot/internal/repo"
 )
@@ -240,6 +240,40 @@ func TestDecisionLogSkipBranches(t *testing.T) {
 				t.Errorf("replies = %d, want 0", got)
 			}
 		})
+	}
+}
+
+func TestDecisionLogRichMessage(t *testing.T) {
+	p, _, _ := setupProcessor(t)
+	msg := textMessage(testChatID, 7, "A", "", 10)
+	msg.RichMessage = &telebot.RichMessage{
+		Blocks: []telebot.RichBlock{{
+			Type: telebot.RichBlockParagraph,
+			Text: &telebot.RichText{Kind: telebot.RichTextPlain, Plain: "rich decision content"},
+		}},
+	}
+	buf := captureDecisionLog(t, p)
+	replies := &replyRecorder{}
+
+	if err := p.ProcessMessage(msg, "trace", replies.reply); err != nil {
+		t.Fatalf("ProcessMessage() error = %v", err)
+	}
+	lines := readDecisions(t, buf)
+	if len(lines) != 1 {
+		t.Fatalf("decision lines = %d, want exactly 1: %s", len(lines), buf.String())
+	}
+	line := lines[0]
+	if line.Decision != DecisionPairedSilent {
+		t.Errorf("decision = %q, want %q", line.Decision, DecisionPairedSilent)
+	}
+	if line.MsgType != "rich_message" {
+		t.Errorf("msg_type = %q, want rich_message", line.MsgType)
+	}
+	if len(line.KeyHash) != 8 {
+		t.Errorf("key_hash = %q, want 8 hex chars", line.KeyHash)
+	}
+	if len(replies.snapshot()) != 0 {
+		t.Errorf("replies = %#v, want none on first occurrence", replies.snapshot())
 	}
 }
 

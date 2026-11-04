@@ -4,7 +4,7 @@ import (
 	"errors"
 	"time"
 
-	"gopkg.in/telebot.v3"
+	"gopkg.in/telebot.v4"
 )
 
 const (

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/telebot.v3"
+	"gopkg.in/telebot.v4"
 	"mars-rescue-bot/internal/bot"
 	"mars-rescue-bot/internal/config"
 	"mars-rescue-bot/internal/logger"

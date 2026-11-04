@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"gopkg.in/telebot.v3"
+	"gopkg.in/telebot.v4"
 	"gorm.io/gorm"
 	"mars-rescue-bot/internal/models"
 	"mars-rescue-bot/internal/names"
