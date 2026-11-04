@@ -156,6 +156,19 @@ func TestDecisionLogSkipBranches(t *testing.T) {
 			wantUser: 71,
 		},
 		{
+			name: "mention_only",
+			msg: func() *telebot.Message {
+				msg := textMessage(testChatID, 72, "Mention", "@Bob", 35)
+				msg.Entities = telebot.Entities{
+					{Type: telebot.EntityMention, Offset: 0, Length: 4},
+				}
+				return msg
+			},
+			want:     DecisionMentionOnly,
+			wantType: "text",
+			wantUser: 72,
+		},
+		{
 			name: "command",
 			msg: func() *telebot.Message {
 				return textMessage(testChatID, 81, "Commander", "/mars_rank", 29)
