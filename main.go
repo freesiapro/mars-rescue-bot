@@ -40,10 +40,12 @@ func main() {
 
 	client := newHTTPClient()
 
+	poller := botengine.NewRichMessagePoller(&telebot.LongPoller{Timeout: 10 * time.Second})
 	pref := telebot.Settings{
-		Token:  config.BotToken,
-		Poller: &telebot.LongPoller{Timeout: 10 * time.Second},
-		Client: client,
+		Token:       config.BotToken,
+		Poller:      poller,
+		Client:      client,
+		Synchronous: true,
 	}
 
 	bot, err := telebot.NewBot(pref)

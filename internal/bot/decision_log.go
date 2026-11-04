@@ -97,6 +97,19 @@ func (d *decisionRecorder) log() {
 	if d.key != "" {
 		attrs = append(attrs, "key_hash", contentKeyHash(d.secret, d.key))
 	}
+	// no_content / unsupported_type 说明消息字段没能产生可检测内容。
+	// 记录非空的顶层字段名和富文本块类型（不含任何字段值、正文），
+	// 便于从线上日志判断是字段缺失、telebot 未解析，还是确实没有内容。
+	if d.decision == DecisionNoContent || d.decision == DecisionUnsupportedType {
+		fields := messagePresentFields(d.msg)
+		if fields == nil {
+			fields = []string{}
+		}
+		attrs = append(attrs, "present_fields", fields)
+		if types := messageRichBlockTypes(d.msg); len(types) > 0 {
+			attrs = append(attrs, "rich_block_types", types)
+		}
+	}
 	d.logger.Info("dedup decision", attrs...)
 }
 
