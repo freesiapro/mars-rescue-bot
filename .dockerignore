@@ -1,0 +1,37 @@
+# 版本控制
+.git
+.gitignore
+
+# 密钥与环境变量（.env.example 也不进入镜像）
+.env
+.env.*
+
+# SQLite 数据与临时文件
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.db3
+
+# 构建产物与测试产物
+dist/
+tmp/
+build/
+*.test
+*.out
+coverage.html
+coverage.txt
+
+# 编辑器与系统文件
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# 文档与本地编排文件
+README.md
+docker-compose.yml
