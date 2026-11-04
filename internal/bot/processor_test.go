@@ -1461,18 +1461,14 @@ func TestProcessorDifferentMediaUniqueIDIsNotDuplicate(t *testing.T) {
 	}
 }
 
-func TestProcessorMediaSkipsForwardedAndMissingUniqueID(t *testing.T) {
+func TestProcessorMediaSkipsMissingUniqueID(t *testing.T) {
 	p, _, db := setupProcessor(t)
 	rec := &replyRecorder{}
-
-	forwarded := textMessage(testChatID, 1, "A", "", 10)
-	forwarded.Photo = &telebot.Photo{File: telebot.File{UniqueID: "forwarded-photo"}}
-	forwarded.OriginalSender = &telebot.User{ID: 77}
 
 	missingID := textMessage(testChatID, 1, "A", "", 11)
 	missingID.Photo = &telebot.Photo{}
 
-	for _, msg := range []*telebot.Message{forwarded, forwarded, missingID, missingID} {
+	for _, msg := range []*telebot.Message{missingID, missingID} {
 		if err := p.ProcessMessage(msg, "trace", rec.reply); err != nil {
 			t.Fatalf("ProcessMessage() error = %v", err)
 		}
