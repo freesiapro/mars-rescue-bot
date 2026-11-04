@@ -29,6 +29,7 @@ type Processor struct {
 	dedupSecret string
 	maxAttempts int
 	sleep       func(time.Duration)
+	now         func() time.Time
 }
 
 func NewProcessor(r *repo.Repo, dedupSecret string, nameResolver *names.Resolver, statsLoc *time.Location) *Processor {
@@ -46,6 +47,7 @@ func NewProcessor(r *repo.Repo, dedupSecret string, nameResolver *names.Resolver
 		dedupSecret: dedupSecret,
 		maxAttempts: maxReplyAttempts,
 		sleep:       time.Sleep,
+		now:         time.Now,
 	}
 }
 
@@ -114,7 +116,7 @@ func (p *Processor) ProcessMessage(msg *telebot.Message, traceID string, reply f
 type duplicateEvent struct {
 	record *models.ForwardRecord
 	kind   string
-	// mediaSubject 是媒体提醒里的主语（这张图片、这段视频…），只影响文案。
+	// mediaSubject 是媒体提醒里的名词（这张图、这段视频…），只影响文案。
 	mediaSubject string
 	sender       *telebot.User
 	// seq 是本次出现后的 forward_count，用于提醒发送失败时条件回滚配对状态。
@@ -149,11 +151,11 @@ func (p *Processor) tryMediaDuplicate(msg *telebot.Message) (*duplicateEvent, er
 	return event, err
 }
 
-// mediaContentKey 返回去重键和提醒文案里的主语。主语只影响展示，不参与去重。
+// mediaContentKey 返回去重键和提醒文案里的名词。名词只影响展示，不参与去重。
 func mediaContentKey(msg *telebot.Message) (key, subject string, ok bool) {
 	switch {
 	case msg.Photo != nil && msg.Photo.UniqueID != "":
-		return "media:photo:" + msg.Photo.UniqueID, "这张图片", true
+		return "media:photo:" + msg.Photo.UniqueID, "这张图", true
 	case msg.Video != nil && msg.Video.UniqueID != "":
 		return "media:video:" + msg.Video.UniqueID, "这段视频", true
 	case msg.Animation != nil && msg.Animation.UniqueID != "":
@@ -250,59 +252,89 @@ func (p *Processor) formatDuplicate(chat *telebot.Chat, event *duplicateEvent, m
 		who = formatMention(event.sender)
 	}
 
-	selfRepeat := event.sender != nil &&
-		event.record.FirstSenderID > 0 &&
-		event.record.FirstSenderID == event.sender.ID
-	header := fmt.Sprintf("🚨 %s，火星救援！", who)
-	if selfRepeat {
-		header = fmt.Sprintf("🚨 %s，又是你，火星救援！", who)
+	prefix := fmt.Sprintf("🚨 火星救援！%s，%s", who, event.subject())
+
+	firstSenderID := event.record.FirstSenderID
+	if firstSenderID <= 0 {
+		return prefix + "群里早就有人发过了"
 	}
 
-	firstSender := "已不可考（旧记录）"
-	if id := event.record.FirstSenderID; id > 0 {
-		firstSender = p.names.Name(chat, id)
-		if firstSender == "" {
-			firstSender = fmt.Sprintf("用户 %d", id)
+	firstSeen := p.formatFirstSeen(event.record.CreatedAt)
+	linkHTML := ""
+	if link, ok := messageLink(chat, event.record.FirstTargetMsgID); ok {
+		linkHTML = fmt.Sprintf("<a href=\"%s\">回现场</a>", html.EscapeString(link))
+	}
+
+	if event.sender != nil && event.sender.ID == firstSenderID {
+		var sb strings.Builder
+		sb.WriteString(prefix)
+		sb.WriteString("你自己")
+		if firstSeen != "" {
+			sb.WriteString(" ")
+			sb.WriteString(firstSeen)
 		}
-		if event.sender != nil && id == event.sender.ID {
-			firstSender = "也是你"
+		sb.WriteString(" 就发过了 😂")
+		if linkHTML != "" {
+			sb.WriteString(" ")
+			sb.WriteString(linkHTML)
 		}
-	}
-	firstSeen := "时间未知"
-	if !event.record.CreatedAt.IsZero() {
-		firstSeen = event.record.CreatedAt.In(p.statsLoc).Format("2006-01-02 15:04")
+		return sb.String()
 	}
 
-	link, hasLink := messageLink(chat, event.record.FirstTargetMsgID)
-	linkText := "无消息链接"
-	if hasLink {
-		linkText = fmt.Sprintf("<a href=\"%s\">回现场</a>", html.EscapeString(link))
+	firstSender := p.names.Name(chat, firstSenderID)
+	if firstSender == "" {
+		firstSender = fmt.Sprintf("用户 %d", firstSenderID)
 	}
 
-	body := fmt.Sprintf("%s群里已经有过了，配对抵消，下次重新算一对。", event.subject())
-
-	firstLabel := "首发"
-	if event.kind == "channel" {
-		// 频道转发的“首发者”是把原帖第一次转发进群的人，不是原频道作者。
-		firstLabel = "首次转发"
+	var sb strings.Builder
+	sb.WriteString(prefix)
+	sb.WriteString(" ")
+	sb.WriteString(html.EscapeString(firstSender))
+	if firstSeen != "" {
+		sb.WriteString(" ")
+		sb.WriteString(firstSeen)
 	}
-	return fmt.Sprintf("%s\n%s\n%s：%s · %s · %s",
-		header, body, firstLabel, html.EscapeString(firstSender), html.EscapeString(firstSeen), linkText)
+	sb.WriteString(" 就发过了")
+	if linkHTML != "" {
+		sb.WriteString("，")
+		sb.WriteString(linkHTML)
+	}
+	return sb.String()
 }
 
-// subject 是提醒正文的主语，必须与检测方式一致：
-// 文本经过归一化，不能声称“一字不差”；媒体按 file_unique_id 去重；频道转发按原帖识别。
+// formatFirstSeen 返回提醒里的短时间：当天只显示时:分，其他日期显示月-日 时:分。
+func (p *Processor) formatFirstSeen(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	loc := p.statsLoc
+	if loc == nil {
+		loc = time.UTC
+	}
+	local := t.In(loc)
+	now := time.Now().In(loc)
+	if p.now != nil {
+		now = p.now().In(loc)
+	}
+	if local.Year() == now.Year() && local.Month() == now.Month() && local.Day() == now.Day() {
+		return local.Format("15:04")
+	}
+	return local.Format("01-02 15:04")
+}
+
+// subject 是提醒正文里的名词，必须与检测方式一致：
+// 文本被归一化后比较，媒体按 file_unique_id 去重，频道转发按原帖识别。
 func (e *duplicateEvent) subject() string {
 	switch e.kind {
 	case "channel":
-		return "这条频道转发"
+		return "这条转发"
 	case "media":
 		if e.mediaSubject != "" {
 			return e.mediaSubject
 		}
-		return "这条媒体内容"
+		return "这条"
 	default:
-		return "这段内容（忽略标点、大小写等差异）"
+		return "这条"
 	}
 }
 
