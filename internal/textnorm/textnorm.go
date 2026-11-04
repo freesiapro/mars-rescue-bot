@@ -69,6 +69,24 @@ func HasContent(normalized string, minRunes int) bool {
 	return false
 }
 
+// IsRepeatedSingleRune 报告归一化文本是否由同一个字符重复组成。
+// 标点已在 Normalize 中删除；空白也会参与比较，因此含空白的文本不算。
+func IsRepeatedSingleRune(normalized string) bool {
+	var first rune
+	found := false
+	for _, r := range normalized {
+		if !found {
+			first = r
+			found = true
+			continue
+		}
+		if r != first {
+			return false
+		}
+	}
+	return found
+}
+
 func normalizePlain(s string) string {
 	s = asciiLower(s)
 	var b strings.Builder
