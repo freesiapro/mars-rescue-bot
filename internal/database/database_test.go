@@ -109,4 +109,12 @@ func TestAutoMigrateKeepsLegacyRowsPendingNull(t *testing.T) {
 	if pending.Valid {
 		t.Errorf("legacy pending_pair = %v, want NULL", pending.Bool)
 	}
+
+	var firstSenderID int64
+	if err := db.Raw(`SELECT first_sender_id FROM forward_records WHERE content_key = ?`, "legacy").Scan(&firstSenderID).Error; err != nil {
+		t.Fatalf("read migrated first_sender_id: %v", err)
+	}
+	if firstSenderID != 0 {
+		t.Errorf("legacy first_sender_id = %d, want 0", firstSenderID)
+	}
 }

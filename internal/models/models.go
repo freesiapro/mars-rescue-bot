@@ -9,6 +9,8 @@ type ForwardRecord struct {
 	ContentKey       string `gorm:"notNull;index:idx_chat_key,unique"` // "channel:123:456" / "text:abc..."
 	ForwardCount     int    `gorm:"default:1"`
 	FirstTargetMsgID int
+	// FirstSenderID 是内容首次出现时的发送者。0 表示历史记录或未知。
+	FirstSenderID int64 `gorm:"default:0"`
 	// PendingPair 表示当前是否存在一个尚未配对的出现：
 	//   1/true  = 有一次出现正在等待下一次相同内容来组成一对；
 	//   0/false = 上一次出现已经配对并发出提醒，下一次出现将开启新的一对。

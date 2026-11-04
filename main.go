@@ -17,6 +17,7 @@ import (
 	"mars-rescue-bot/internal/database"
 	"mars-rescue-bot/internal/handler"
 	"mars-rescue-bot/internal/logger"
+	"mars-rescue-bot/internal/names"
 	"mars-rescue-bot/internal/repo"
 )
 
@@ -63,7 +64,7 @@ func main() {
 	cmdHandler := handler.NewCommandHandler(r, handler.NewAdminChecker(bot))
 	cmdHandler.Register(bot)
 
-	processor := botengine.NewProcessor(r, config.DedupSecret)
+	processor := botengine.NewProcessor(r, config.DedupSecret, names.New(bot), config.StatsLocation())
 	msgHandler := handler.NewMessageHandler(processor)
 	msgHandler.Register(bot)
 

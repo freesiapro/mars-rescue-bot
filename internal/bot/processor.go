@@ -13,6 +13,7 @@ import (
 	"gopkg.in/telebot.v3"
 	"mars-rescue-bot/internal/logger"
 	"mars-rescue-bot/internal/models"
+	"mars-rescue-bot/internal/names"
 	"mars-rescue-bot/internal/repo"
 )
 
@@ -22,15 +23,25 @@ import (
 type Processor struct {
 	repo        *repo.Repo
 	cooldown    *Cooldown
+	names       *names.Resolver
+	statsLoc    *time.Location
 	dedupSecret string
 	maxAttempts int
 	sleep       func(time.Duration)
 }
 
-func NewProcessor(r *repo.Repo, dedupSecret string) *Processor {
+func NewProcessor(r *repo.Repo, dedupSecret string, nameResolver *names.Resolver, statsLoc *time.Location) *Processor {
+	if nameResolver == nil {
+		nameResolver = names.New(nil)
+	}
+	if statsLoc == nil {
+		statsLoc = time.UTC
+	}
 	return &Processor{
 		repo:        r,
 		cooldown:    NewCooldown(),
+		names:       nameResolver,
+		statsLoc:    statsLoc,
 		dedupSecret: dedupSecret,
 		maxAttempts: maxReplyAttempts,
 		sleep:       time.Sleep,
@@ -59,6 +70,7 @@ func (p *Processor) ProcessMessage(msg *telebot.Message, traceID string, reply f
 		slog.Debug("skip message without sender", "chat_id", msg.Chat.ID)
 		return nil
 	}
+	p.names.Observe(msg.Sender)
 
 	settings, err := p.repo.GetChatSettings(msg.Chat.ID)
 	if err != nil {
@@ -178,7 +190,7 @@ func (p *Processor) emitReply(msg *telebot.Message, event *duplicateEvent, setti
 		return nil
 	}
 
-	text := formatDuplicate(msg.Chat, event, settings.MentionEnabled)
+	text := p.formatDuplicate(msg.Chat, event, settings.MentionEnabled)
 	if err := reply(text); err != nil {
 		slog.Error("send reply failed", "trace_id", traceID, "chat_id", msg.Chat.ID, "error", err)
 		// 发送失败（例如 429 重试耗尽）不算配对成功，恢复待配对状态，
@@ -195,28 +207,40 @@ func (p *Processor) emitReply(msg *telebot.Message, event *duplicateEvent, setti
 	return nil
 }
 
-func formatDuplicate(chat *telebot.Chat, event *duplicateEvent, mention bool) string {
+func (p *Processor) formatDuplicate(chat *telebot.Chat, event *duplicateEvent, mention bool) string {
 	who := formatDisplayName(event.sender)
 	if mention {
 		who = formatMention(event.sender)
 	}
 
+	firstSender := "首发者未知"
+	firstSeen := "时间未知"
+	if event.record.FirstSenderID > 0 {
+		firstSender = p.names.Name(chat, event.record.FirstSenderID)
+		if firstSender == "" {
+			firstSender = fmt.Sprintf("用户 %d", event.record.FirstSenderID)
+		}
+	}
+	if !event.record.CreatedAt.IsZero() {
+		firstSeen = event.record.CreatedAt.In(p.statsLoc).Format("01-02 15:04")
+	}
+	firstSender = html.EscapeString(firstSender)
+	firstSeen = html.EscapeString(firstSeen)
+	count := event.record.ForwardCount
+
 	link, hasLink := messageLink(chat, event.record.FirstTargetMsgID)
+	linkText := ""
+	if hasLink {
+		linkText = fmt.Sprintf("\n<a href=\"%s\">回到首发现场</a>", html.EscapeString(link))
+	}
+
 	switch event.kind {
 	case "channel":
-		if hasLink {
-			return fmt.Sprintf("🚨 %s 火星救援！<a href=\"%s\">这条消息</a>已经被打捞过一次了，你是来炒冷饭的？",
-				who, html.EscapeString(link))
-		}
-		return fmt.Sprintf("🚨 %s 火星救援！这条消息已经被打捞过一次了，你是来炒冷饭的？", who)
+		return fmt.Sprintf("🚨 %s 火星救援！\n这条消息最早由 %s 于 %s 转发进群，这是第 %d 次出现。%s",
+			who, firstSender, firstSeen, count, linkText)
 	default:
-		count := event.record.ForwardCount
-		if hasLink {
-			return fmt.Sprintf("🚨 %s 火星救援！<a href=\"%s\">这句话</a>已被发送 %d 次，你是第 %d 个没看聊天记录的",
-				who, html.EscapeString(link), count, count)
-		}
-		return fmt.Sprintf("🚨 %s 火星救援！这句话已被发送 %d 次，你是第 %d 个没看聊天记录的",
-			who, count, count)
+		return fmt.Sprintf("🚨 %s 火星救援！\n这句话最早由 %s 于 %s 发出，这是第 %d 次出现，你是第 %d 个没看聊天记录的。%s",
+			who, firstSender, firstSeen, count, count, linkText)
 	}
 }
 

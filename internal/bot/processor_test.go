@@ -10,6 +10,7 @@ import (
 	"gopkg.in/telebot.v3"
 	"gorm.io/gorm"
 	"mars-rescue-bot/internal/models"
+	"mars-rescue-bot/internal/names"
 	"mars-rescue-bot/internal/repo"
 	"mars-rescue-bot/internal/testutil"
 )
@@ -26,7 +27,7 @@ func setupProcessor(t *testing.T) (*Processor, *repo.Repo, *gorm.DB) {
 		&models.ChatIgnoredUser{},
 	)
 	r := repo.New(db)
-	p := NewProcessor(r, "test-secret")
+	p := NewProcessor(r, "test-secret", names.New(nil), time.UTC)
 	p.sleep = func(time.Duration) {}
 	return p, r, db
 }
@@ -152,6 +153,61 @@ func TestProcessorTextReplyUsesPublicGroupLink(t *testing.T) {
 	}
 }
 
+func TestProcessorReplyIncludesFirstSender(t *testing.T) {
+	p, _, db := setupProcessor(t)
+	rec := &replyRecorder{}
+
+	if err := p.ProcessMessage(textMessage(testChatID, 7, "Alice", "hello mars", 10), "trace", rec.reply); err != nil {
+		t.Fatalf("first ProcessMessage() error = %v", err)
+	}
+	if err := p.ProcessMessage(textMessage(testChatID, 8, "Bob", "hello mars", 11), "trace", rec.reply); err != nil {
+		t.Fatalf("second ProcessMessage() error = %v", err)
+	}
+
+	if len(rec.messages) != 1 {
+		t.Fatalf("replies = %#v, want 1", rec.messages)
+	}
+	reply := rec.messages[0]
+	for _, want := range []string{"最早由 Alice 于", "这是第 2 次出现", "回到首发现场"} {
+		if !strings.Contains(reply, want) {
+			t.Errorf("reply = %q, want containing %q", reply, want)
+		}
+	}
+
+	var record models.ForwardRecord
+	if err := db.First(&record).Error; err != nil {
+		t.Fatalf("load record: %v", err)
+	}
+	if record.FirstSenderID != 7 {
+		t.Errorf("FirstSenderID = %d, want 7", record.FirstSenderID)
+	}
+}
+
+func TestProcessorLegacyRecordShowsUnknownFirstSender(t *testing.T) {
+	p, _, db := setupProcessor(t)
+	rec := &replyRecorder{}
+
+	// 旧记录：没有 first_sender_id，计数为 1（奇数）表示还有一次未配对的出现。
+	if err := db.Create(&models.ForwardRecord{
+		ChatID:           testChatID,
+		ContentKey:       textContentKey("test-secret", "legacy sender"),
+		ForwardCount:     1,
+		FirstTargetMsgID: 5,
+	}).Error; err != nil {
+		t.Fatalf("create legacy record: %v", err)
+	}
+
+	if err := p.ProcessMessage(textMessage(testChatID, 8, "Bob", "legacy sender", 11), "trace", rec.reply); err != nil {
+		t.Fatalf("ProcessMessage() error = %v", err)
+	}
+	if len(rec.messages) != 1 {
+		t.Fatalf("replies = %#v, want 1", rec.messages)
+	}
+	if !strings.Contains(rec.messages[0], "首发者未知") {
+		t.Errorf("reply = %q, want unknown first sender", rec.messages[0])
+	}
+}
+
 func TestProcessorFirstMessageNoReply(t *testing.T) {
 	p, _, db := setupProcessor(t)
 	rec := &replyRecorder{}
@@ -198,7 +254,7 @@ func TestProcessorSelfRepeatRepliesWithMention(t *testing.T) {
 		t.Fatalf("replies = %#v, want 1", rec.messages)
 	}
 	reply := rec.messages[0]
-	for _, want := range []string{"火星救援", "tg://user?id=7", "&lt;A&amp;B&gt;", "已被发送 2 次"} {
+	for _, want := range []string{"火星救援", "tg://user?id=7", "&lt;A&amp;B&gt;", "这是第 2 次出现", "最早由"} {
 		if !strings.Contains(reply, want) {
 			t.Errorf("reply = %q, want containing %q", reply, want)
 		}
@@ -457,10 +513,10 @@ func TestProcessorPairingAlertsEverySecondOccurrence(t *testing.T) {
 		}
 	}
 
-	if !strings.Contains(rec.messages[0], "已被发送 2 次") {
+	if !strings.Contains(rec.messages[0], "这是第 2 次出现") {
 		t.Errorf("first alert = %q, want count 2", rec.messages[0])
 	}
-	if !strings.Contains(rec.messages[1], "已被发送 4 次") {
+	if !strings.Contains(rec.messages[1], "这是第 4 次出现") {
 		t.Errorf("second alert = %q, want count 4", rec.messages[1])
 	}
 }
@@ -506,7 +562,7 @@ func TestProcessorPairingSurvivesRestart(t *testing.T) {
 
 	// 用同一数据库重新构造 repo/processor，模拟进程重启。
 	restarted := func() *Processor {
-		np := NewProcessor(repo.New(db), "test-secret")
+		np := NewProcessor(repo.New(db), "test-secret", names.New(nil), time.UTC)
 		np.sleep = func(time.Duration) {}
 		return np
 	}
