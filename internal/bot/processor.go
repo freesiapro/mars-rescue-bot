@@ -178,7 +178,7 @@ func (p *Processor) emitReply(msg *telebot.Message, event *duplicateEvent, setti
 		return nil
 	}
 
-	text := formatDuplicate(event, settings.MentionEnabled)
+	text := formatDuplicate(msg.Chat, event, settings.MentionEnabled)
 	if err := reply(text); err != nil {
 		slog.Error("send reply failed", "trace_id", traceID, "chat_id", msg.Chat.ID, "error", err)
 		// 发送失败（例如 429 重试耗尽）不算配对成功，恢复待配对状态，
@@ -195,21 +195,28 @@ func (p *Processor) emitReply(msg *telebot.Message, event *duplicateEvent, setti
 	return nil
 }
 
-func formatDuplicate(event *duplicateEvent, mention bool) string {
+func formatDuplicate(chat *telebot.Chat, event *duplicateEvent, mention bool) string {
 	who := formatDisplayName(event.sender)
 	if mention {
 		who = formatMention(event.sender)
 	}
 
-	link := html.EscapeString(messageLink(event.record.ChatID, event.record.FirstTargetMsgID))
+	link, hasLink := messageLink(chat, event.record.FirstTargetMsgID)
 	switch event.kind {
 	case "channel":
-		return fmt.Sprintf("🚨 %s 火星救援！<a href=\"%s\">这条消息</a>已经被打捞过一次了，你是来炒冷饭的？",
-			who, link)
+		if hasLink {
+			return fmt.Sprintf("🚨 %s 火星救援！<a href=\"%s\">这条消息</a>已经被打捞过一次了，你是来炒冷饭的？",
+				who, html.EscapeString(link))
+		}
+		return fmt.Sprintf("🚨 %s 火星救援！这条消息已经被打捞过一次了，你是来炒冷饭的？", who)
 	default:
 		count := event.record.ForwardCount
-		return fmt.Sprintf("🚨 %s 火星救援！<a href=\"%s\">这句话</a>已被发送 %d 次，你是第 %d 个没看聊天记录的",
-			who, link, count, count)
+		if hasLink {
+			return fmt.Sprintf("🚨 %s 火星救援！<a href=\"%s\">这句话</a>已被发送 %d 次，你是第 %d 个没看聊天记录的",
+				who, html.EscapeString(link), count, count)
+		}
+		return fmt.Sprintf("🚨 %s 火星救援！这句话已被发送 %d 次，你是第 %d 个没看聊天记录的",
+			who, count, count)
 	}
 }
 
@@ -221,17 +228,27 @@ func textContentKey(secret, text string) string {
 	return "text:hmac:" + hex.EncodeToString(mac.Sum(nil))
 }
 
-func messageLink(chatID int64, messageID int) string {
-	var id int64
-	switch {
-	case chatID < -1000000000000:
-		id = -chatID - 1000000000000
-	case chatID < 0:
-		id = -chatID
-	default:
-		id = chatID
+// messageLink 生成消息链接。
+// 公开群使用 t.me/<username>/<msg_id>；私有超级群使用
+// t.me/c/<去掉 -100 后的内部 ID>/<msg_id>；普通群无法生成可用链接。
+func messageLink(chat *telebot.Chat, messageID int) (string, bool) {
+	if chat == nil || messageID <= 0 {
+		return "", false
 	}
-	return fmt.Sprintf("https://t.me/c/%d/%d", id, messageID)
+	if chat.Username != "" {
+		return fmt.Sprintf("https://t.me/%s/%d", chat.Username, messageID), true
+	}
+	if chat.Type != telebot.ChatSuperGroup && chat.Type != telebot.ChatChannel {
+		return "", false
+	}
+	if chat.ID >= -1000000000000 {
+		return "", false
+	}
+	internalID := -chat.ID - 1000000000000
+	if internalID <= 0 {
+		return "", false
+	}
+	return fmt.Sprintf("https://t.me/c/%d/%d", internalID, messageID), true
 }
 
 func formatDisplayName(user *telebot.User) string {
