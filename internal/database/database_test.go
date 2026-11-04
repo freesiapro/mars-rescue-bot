@@ -179,3 +179,57 @@ func TestClearLegacyUserNames(t *testing.T) {
 		}
 	}
 }
+
+// TestAutoMigrateAddsTimeIndexes 验证旧库升级后会补上排行榜和清理任务所需的
+// forward_logs.created_at、forward_records.updated_at 索引。
+func TestAutoMigrateAddsTimeIndexes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy-indexes.db")
+	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get underlying sql.DB: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
+	if err := db.Exec(`CREATE TABLE forward_records (
+		id integer PRIMARY KEY AUTOINCREMENT,
+		chat_id integer NOT NULL,
+		content_key text NOT NULL,
+		forward_count integer DEFAULT 1,
+		first_target_msg_id integer,
+		created_at datetime,
+		updated_at datetime
+	)`).Error; err != nil {
+		t.Fatalf("create legacy forward_records: %v", err)
+	}
+	if err := db.Exec(`CREATE TABLE forward_logs (
+		id integer PRIMARY KEY AUTOINCREMENT,
+		record_id integer NOT NULL,
+		sender_id integer NOT NULL,
+		target_msg_id integer NOT NULL,
+		created_at datetime
+	)`).Error; err != nil {
+		t.Fatalf("create legacy forward_logs: %v", err)
+	}
+
+	if err := db.AutoMigrate(&models.ForwardRecord{}, &models.ForwardLog{}); err != nil {
+		t.Fatalf("AutoMigrate() error = %v", err)
+	}
+
+	for _, tc := range []struct {
+		model interface{}
+		index string
+	}{
+		{&models.ForwardRecord{}, "idx_forward_records_updated_at"},
+		{&models.ForwardLog{}, "idx_forward_logs_created_at"},
+	} {
+		if !db.Migrator().HasIndex(tc.model, tc.index) {
+			t.Errorf("index %q was not created", tc.index)
+		}
+	}
+}

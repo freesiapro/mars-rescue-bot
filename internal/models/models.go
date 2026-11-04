@@ -19,7 +19,7 @@ type ForwardRecord struct {
 	// 因此计数为奇数说明还有一个未配对的出现）。新写入的行总是显式赋值。
 	PendingPair *bool
 	CreatedAt   time.Time `gorm:"autoCreateTime"`
-	UpdatedAt   time.Time `gorm:"autoUpdateTime"`
+	UpdatedAt   time.Time `gorm:"autoUpdateTime;index"`
 }
 
 func (ForwardRecord) TableName() string {
@@ -32,7 +32,7 @@ type ForwardLog struct {
 	RecordID    uint64    `gorm:"notNull;index;index:idx_record_sender"`
 	SenderID    int64     `gorm:"notNull;index:idx_record_sender"`
 	TargetMsgID int       `gorm:"notNull"`
-	CreatedAt   time.Time `gorm:"autoCreateTime"`
+	CreatedAt   time.Time `gorm:"autoCreateTime;index"`
 }
 
 func (ForwardLog) TableName() string {
