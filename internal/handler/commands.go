@@ -16,23 +16,29 @@ import (
 )
 
 type CommandHandler struct {
-	repo     *repo.Repo
-	admins   *AdminChecker
-	names    *names.Resolver
-	now      func() time.Time
-	statsLoc *time.Location
+	repo          *repo.Repo
+	admins        *AdminChecker
+	names         *names.Resolver
+	now           func() time.Time
+	statsLoc      *time.Location
+	retentionDays int
 }
 
 func NewCommandHandler(r *repo.Repo, admins *AdminChecker, resolver *names.Resolver) *CommandHandler {
 	if resolver == nil {
 		resolver = names.New(nil)
 	}
+	retentionDays := config.DataRetentionDays
+	if retentionDays <= 0 {
+		retentionDays = config.DefaultDataRetentionDays
+	}
 	return &CommandHandler{
-		repo:     r,
-		admins:   admins,
-		names:    resolver,
-		now:      time.Now,
-		statsLoc: config.StatsLocation(),
+		repo:          r,
+		admins:        admins,
+		names:         resolver,
+		now:           time.Now,
+		statsLoc:      config.StatsLocation(),
+		retentionDays: retentionDays,
 	}
 }
 
@@ -40,6 +46,7 @@ func (h *CommandHandler) Register(bot *telebot.Bot) {
 	bot.Handle("/start", h.handleStart)
 	bot.Handle("/mars_rank", h.handleRank)
 	bot.Handle("/mars_me", h.handleMe)
+	bot.Handle("/mars_privacy", h.handlePrivacy)
 	bot.Handle("/mars_off", h.handleOff)
 	bot.Handle("/mars_on", h.handleOn)
 	bot.Handle("/mars_status", h.handleStatus)
@@ -69,6 +76,7 @@ func (h *CommandHandler) handleStart(c telebot.Context) error {
 			"命令:\n" +
 			"/mars_rank [week|month|all] - 查看本周/本月/总火星指数榜\n" +
 			"/mars_me - 查看自己的火星指数\n" +
+			"/mars_privacy - 查看隐私与数据说明\n" +
 			"/mars_status - 查看本群设置（管理员）\n" +
 			"/mars_off - 关闭本群检测（管理员）\n" +
 			"/mars_on - 开启本群检测（管理员）\n" +
