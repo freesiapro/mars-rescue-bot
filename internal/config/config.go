@@ -2,10 +2,14 @@ package config
 
 import (
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
 )
+
+const DefaultDataRetentionDays = 180
 
 var (
 	BotToken string
@@ -16,6 +20,8 @@ var (
 	DedupSecret string
 	// StatsTZ 是排行榜周界计算使用的时区。
 	StatsTZ string
+	// DataRetentionDays 是保留数据的天数，超过该天数的流水与记录会被清理。
+	DataRetentionDays int
 )
 
 func Init() {
@@ -39,6 +45,17 @@ func Init() {
 	if StatsTZ == "" {
 		StatsTZ = "Asia/Shanghai"
 	}
+
+	DataRetentionDays = parseRetentionDays(os.Getenv("DATA_RETENTION_DAYS"))
+}
+
+// parseRetentionDays 解析 DATA_RETENTION_DAYS；缺失、非法或非正数时使用默认值。
+func parseRetentionDays(raw string) int {
+	days, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || days <= 0 {
+		return DefaultDataRetentionDays
+	}
+	return days
 }
 
 // StatsLocation 返回排行榜使用的时区。
