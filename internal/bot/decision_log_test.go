@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gopkg.in/telebot.v3"
+	"mars-rescue-bot/internal/models"
 	"mars-rescue-bot/internal/repo"
 )
 
@@ -573,6 +574,54 @@ func TestDecisionLogExactlyOncePerMessage(t *testing.T) {
 		}
 		if lines[i].Decision != want[i] {
 			t.Errorf("message %d decision = %q, want %q", i, lines[i].Decision, want[i])
+		}
+	}
+}
+
+// /hyw 走命令豁免：不建记录、不计数、不写流水，只有唯一一条 command 决策日志。
+// 线上已注册命令由 telebot 直接分派；这里直接调用 ProcessMessage，验证豁免分支本身。
+func TestHYWCommandDecisionExemptFromDedup(t *testing.T) {
+	p, _, db := setupProcessor(t)
+	buf := captureDecisionLog(t, p)
+	replies := &replyRecorder{}
+
+	msg := textMessage(testChatID, 7, "Asker", "/hyw", 10)
+	if err := p.ProcessMessage(msg, "trace", replies.reply); err != nil {
+		t.Fatalf("ProcessMessage(/hyw) error = %v", err)
+	}
+
+	lines := readDecisions(t, buf)
+	if len(lines) != 1 {
+		t.Fatalf("decision lines = %d, want exactly 1", len(lines))
+	}
+	line := lines[0]
+	if line.Decision != DecisionCommand {
+		t.Errorf("decision = %q, want %q", line.Decision, DecisionCommand)
+	}
+	if line.MsgType != "text" {
+		t.Errorf("msg_type = %q, want text", line.MsgType)
+	}
+	if line.KeyHash != "" {
+		t.Errorf("key_hash = %q, want omitted", line.KeyHash)
+	}
+	if got := len(replies.snapshot()); got != 0 {
+		t.Errorf("replies = %d, want 0", got)
+	}
+
+	for _, item := range []struct {
+		name  string
+		model interface{}
+	}{
+		{"records", &models.ForwardRecord{}},
+		{"logs", &models.ForwardLog{}},
+		{"stats", &models.UserStats{}},
+	} {
+		var count int64
+		if err := db.Model(item.model).Count(&count).Error; err != nil {
+			t.Fatalf("count %s: %v", item.name, err)
+		}
+		if count != 0 {
+			t.Errorf("%s count = %d, want 0", item.name, count)
 		}
 	}
 }
