@@ -279,13 +279,7 @@ func (p *Processor) formatDuplicate(chat *telebot.Chat, event *duplicateEvent, m
 		linkText = fmt.Sprintf("<a href=\"%s\">回现场</a>", html.EscapeString(link))
 	}
 
-	count := event.record.ForwardCount
-	prev := count - 1
-	if prev < 1 {
-		prev = 1
-	}
-	body := fmt.Sprintf("%s在本群记录中第 %d 次出现，和第 %d 次撞车，已配对抵消，下次重新开一对。",
-		event.subject(), count, prev)
+	body := fmt.Sprintf("%s群里已经有过了，配对抵消，下次重新算一对。", event.subject())
 
 	firstLabel := "首发"
 	if event.kind == "channel" {

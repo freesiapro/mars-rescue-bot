@@ -2,6 +2,7 @@ package bot
 
 import (
 	"errors"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -63,6 +64,16 @@ func (r *replyRecorder) snapshot() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]string(nil), r.messages...)
+}
+
+var occurrenceCountPattern = regexp.MustCompile(`第\s*[0-9]+\s*次|[0-9]+\s*次`)
+
+// assertNoOccurrenceCount 确认提醒文案里没有“第 N 次”“N 次”这类出现次数。
+func assertNoOccurrenceCount(t *testing.T, copy string) {
+	t.Helper()
+	if match := occurrenceCountPattern.FindString(copy); match != "" {
+		t.Errorf("alert copy contains occurrence count %q: %q", match, copy)
+	}
 }
 
 func TestTextKeyUsesHMACAndNoPlaintext(t *testing.T) {
@@ -174,11 +185,12 @@ func TestProcessorReplyIncludesFirstSender(t *testing.T) {
 		t.Fatalf("replies = %#v, want 1", rec.messages)
 	}
 	reply := rec.messages[0]
-	for _, want := range []string{"首发：Alice ·", "在本群记录中第 2 次出现", "和第 1 次撞车", "回现场"} {
+	for _, want := range []string{"首发：Alice ·", "群里已经有过了", "配对抵消", "下次重新算一对", "回现场"} {
 		if !strings.Contains(reply, want) {
 			t.Errorf("reply = %q, want containing %q", reply, want)
 		}
 	}
+	assertNoOccurrenceCount(t, reply)
 
 	var record models.ForwardRecord
 	if err := db.First(&record).Error; err != nil {
@@ -209,9 +221,10 @@ func TestProcessorLegacyRecordShowsUnknownFirstSender(t *testing.T) {
 	if len(rec.messages) != 1 {
 		t.Fatalf("replies = %#v, want 1", rec.messages)
 	}
-	if !strings.Contains(rec.messages[0], "首发：已不可考（旧记录）") {
-		t.Errorf("reply = %q, want unknown first sender", rec.messages[0])
+	if !strings.Contains(rec.messages[0], "首发：已不可考（旧记录）") || !strings.Contains(rec.messages[0], "群里已经有过了") {
+		t.Errorf("reply = %q, want unknown first sender and short duplicate copy", rec.messages[0])
 	}
+	assertNoOccurrenceCount(t, rec.messages[0])
 }
 
 func TestProcessorBasicGroupReplyHasNoLink(t *testing.T) {
@@ -235,11 +248,12 @@ func TestProcessorBasicGroupReplyHasNoLink(t *testing.T) {
 	}
 
 	reply := rec.messages[0]
-	for _, want := range []string{"首发：Alice ·", "无消息链接", "在本群记录中第 2 次出现"} {
+	for _, want := range []string{"首发：Alice ·", "无消息链接", "群里已经有过了"} {
 		if !strings.Contains(reply, want) {
 			t.Errorf("reply = %q, want containing %q", reply, want)
 		}
 	}
+	assertNoOccurrenceCount(t, reply)
 	if strings.Contains(reply, "https://t.me") {
 		t.Errorf("reply = %q, want no message link in a basic group", reply)
 	}
@@ -276,7 +290,7 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 			mention: true,
 			wants: []string{
 				"tg://user?id=2", "这段内容（忽略标点、大小写等差异）",
-				"在本群记录中第 2 次出现", "和第 1 次撞车", "已配对抵消",
+				"群里已经有过了", "配对抵消", "下次重新算一对",
 				"首发：Alice", "2026-11-04 12:30", "https://t.me/public_group/10", "回现场",
 			},
 			notWants: []string{"这句话", "一字不差", "你是第", "最早由"},
@@ -290,13 +304,12 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 				sender: &telebot.User{ID: 2, FirstName: "Bob"},
 			},
 			wants: []string{
-				"首发：已不可考（旧记录）", "时间未知", "无消息链接",
-				"在本群记录中第 4 次出现", "和第 3 次撞车",
+				"首发：已不可考（旧记录）", "时间未知", "无消息链接", "群里已经有过了",
 			},
 			notWants: []string{"最早由", "https://t.me", "首发者未知"},
 		},
 		{
-			name: "odd count after a suppressed pair",
+			name: "odd internal count still has no count copy",
 			chat: publicChat,
 			event: &duplicateEvent{
 				record: &models.ForwardRecord{
@@ -305,7 +318,7 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 				kind:   "text",
 				sender: &telebot.User{ID: 2, FirstName: "Bob"},
 			},
-			wants: []string{"在本群记录中第 3 次出现", "和第 2 次撞车"},
+			wants: []string{"群里已经有过了", "下次重新算一对"},
 		},
 		{
 			name: "self repeat",
@@ -318,7 +331,7 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 				sender: &telebot.User{ID: 2, FirstName: "Bob"},
 			},
 			mention: true,
-			wants:   []string{"又是你", "首发：也是你", "tg://user?id=2"},
+			wants:   []string{"又是你", "首发：也是你", "tg://user?id=2", "群里已经有过了"},
 		},
 		{
 			name: "mention disabled",
@@ -330,7 +343,7 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 				kind:   "text",
 				sender: &telebot.User{ID: 2, FirstName: "Bob"},
 			},
-			wants:    []string{"🚨 Bob，火星救援！", "首发：Alice"},
+			wants:    []string{"🚨 Bob，火星救援！", "首发：Alice", "群里已经有过了"},
 			notWants: []string{"tg://user"},
 		},
 		{
@@ -343,7 +356,7 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 				kind:   "channel",
 				sender: &telebot.User{ID: 2, FirstName: "Bob"},
 			},
-			wants: []string{"这条频道转发在本群记录中第 2 次出现", "首次转发：Alice"},
+			wants: []string{"这条频道转发群里已经有过了", "首次转发：Alice"},
 		},
 		{
 			name: "video subject",
@@ -356,7 +369,7 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 				mediaSubject: "这段视频",
 				sender:       &telebot.User{ID: 2, FirstName: "Bob"},
 			},
-			wants: []string{"这段视频在本群记录中第 2 次出现"},
+			wants: []string{"这段视频群里已经有过了"},
 		},
 		{
 			name: "unresolved first sender falls back to id",
@@ -398,6 +411,7 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 					t.Errorf("formatDuplicate() = %q, must not contain %q", out, notWant)
 				}
 			}
+			assertNoOccurrenceCount(t, out)
 		})
 	}
 }
@@ -448,7 +462,7 @@ func TestProcessorSelfRepeatRepliesWithMention(t *testing.T) {
 		t.Fatalf("replies = %#v, want 1", rec.messages)
 	}
 	reply := rec.messages[0]
-	for _, want := range []string{"又是你", "首发：也是你", "tg://user?id=7", "&lt;A&amp;B&gt;", "在本群记录中第 2 次出现", "和第 1 次撞车"} {
+	for _, want := range []string{"又是你", "首发：也是你", "tg://user?id=7", "&lt;A&amp;B&gt;", "群里已经有过了", "配对抵消", "下次重新算一对"} {
 		if !strings.Contains(reply, want) {
 			t.Errorf("reply = %q, want containing %q", reply, want)
 		}
@@ -456,6 +470,7 @@ func TestProcessorSelfRepeatRepliesWithMention(t *testing.T) {
 	if strings.Contains(reply, "<A&B>") {
 		t.Errorf("reply contains unescaped name: %q", reply)
 	}
+	assertNoOccurrenceCount(t, reply)
 
 	var record models.ForwardRecord
 	if err := db.First(&record).Error; err != nil {
@@ -709,12 +724,61 @@ func TestProcessorPairingAlertsEverySecondOccurrence(t *testing.T) {
 		}
 	}
 
-	if !strings.Contains(rec.messages[0], "在本群记录中第 2 次出现") || !strings.Contains(rec.messages[0], "和第 1 次撞车") {
-		t.Errorf("first alert = %q, want count 2 paired with 1", rec.messages[0])
+	for i, alert := range rec.messages {
+		if !strings.Contains(alert, "群里已经有过了") || !strings.Contains(alert, "配对抵消") {
+			t.Errorf("alert %d = %q, want duplicate pairing copy", i, alert)
+		}
+		assertNoOccurrenceCount(t, alert)
 	}
-	if !strings.Contains(rec.messages[1], "在本群记录中第 4 次出现") || !strings.Contains(rec.messages[1], "和第 3 次撞车") {
-		t.Errorf("second alert = %q, want count 4 paired with 3", rec.messages[1])
+}
+
+func TestAlertCountExceedsTwo(t *testing.T) {
+	p, _, db := setupProcessor(t)
+	rec := &replyRecorder{}
+
+	var alertCounts []int64
+	var alertTexts []string
+	for i := 0; i < 6; i++ {
+		before := len(rec.snapshot())
+		msg := textMessage(testChatID, int64(i+1), "A", "count me", 10+i)
+		if err := p.ProcessMessage(msg, "trace", rec.reply); err != nil {
+			t.Fatalf("occurrence %d ProcessMessage() error = %v", i+1, err)
+		}
+		replies := rec.snapshot()
+		if len(replies) == before {
+			continue
+		}
+		alertTexts = append(alertTexts, replies[len(replies)-1])
+
+		// a8d7fab 的 formatDuplicate 直接把 ForwardCount 渲染成“第 N 次”，
+		// 所以这里取到的就是用户当时看到的 N；修复后文案不再渲染它。
+		var record models.ForwardRecord
+		if err := db.First(&record).Error; err != nil {
+			t.Fatalf("occurrence %d load record: %v", i+1, err)
+		}
+		alertCounts = append(alertCounts, int64(record.ForwardCount))
 	}
+
+	want := []int64{2, 4, 6}
+	if len(alertCounts) != len(want) {
+		t.Fatalf("alert counts = %v, want %v", alertCounts, want)
+	}
+	for i := range want {
+		if alertCounts[i] != want[i] {
+			t.Fatalf("alert counts = %v, want %v", alertCounts, want)
+		}
+	}
+	if alertCounts[len(alertCounts)-1] <= 2 {
+		t.Fatalf("last alert count = %d, want > 2", alertCounts[len(alertCounts)-1])
+	}
+	for i, alert := range alertTexts {
+		assertNoOccurrenceCount(t, alert)
+		if !strings.Contains(alert, "群里已经有过了") {
+			t.Errorf("alert %d = %q, want duplicate copy", i, alert)
+		}
+	}
+
+	t.Logf("alerts fired at cumulative ForwardCount=%v; rendered copies contain no count", alertCounts)
 }
 
 func TestProcessorPairingIndependentPerContentAndChat(t *testing.T) {
@@ -873,6 +937,65 @@ func TestProcessorCooldownSuppressionDoesNotCancelPair(t *testing.T) {
 	}
 	if logs != 5 {
 		t.Errorf("logs = %d, want 5 (every occurrence is logged)", logs)
+	}
+}
+
+func TestProcessorCooldownRevertAlertsOnNextOccurrence(t *testing.T) {
+	p, r, db := setupProcessor(t)
+	rec := &replyRecorder{}
+	if err := r.SetChatCooldown(testChatID, 60, 1); err != nil {
+		t.Fatalf("SetChatCooldown() error = %v", err)
+	}
+	now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
+	p.cooldown.now = func() time.Time { return now }
+
+	for i, msg := range []*telebot.Message{
+		textMessage(testChatID, 1, "A", "cooldown revert", 10), // 1：静默
+		textMessage(testChatID, 2, "B", "cooldown revert", 11), // 2：提醒
+		textMessage(testChatID, 3, "C", "cooldown revert", 12), // 3：静默
+		textMessage(testChatID, 4, "D", "cooldown revert", 13), // 4：提醒被冷却抑制
+	} {
+		if err := p.ProcessMessage(msg, "trace", rec.reply); err != nil {
+			t.Fatalf("message %d ProcessMessage() error = %v", i+1, err)
+		}
+	}
+	if len(rec.messages) != 1 {
+		t.Fatalf("replies after suppressed pair = %#v, want only the first alert", rec.messages)
+	}
+
+	// 第 4 次提醒被冷却抑制后配对状态回滚：计数仍是 4，但这一对仍在等待提醒。
+	var record models.ForwardRecord
+	if err := db.First(&record).Error; err != nil {
+		t.Fatalf("load record after revert: %v", err)
+	}
+	if record.ForwardCount != 4 {
+		t.Fatalf("ForwardCount after revert = %d, want 4", record.ForwardCount)
+	}
+	if record.PendingPair == nil || !*record.PendingPair {
+		t.Fatalf("PendingPair after revert = %v, want true", record.PendingPair)
+	}
+
+	// 冷却结束后，下一次出现重新 claim 这一对并发送提醒。
+	now = now.Add(61 * time.Second)
+	if err := p.ProcessMessage(textMessage(testChatID, 5, "E", "cooldown revert", 14), "trace", rec.reply); err != nil {
+		t.Fatalf("next occurrence ProcessMessage() error = %v", err)
+	}
+	if len(rec.messages) != 2 {
+		t.Fatalf("replies after next occurrence = %#v, want 2", rec.messages)
+	}
+	if !strings.Contains(rec.messages[1], "群里已经有过了") {
+		t.Errorf("next alert = %q, want duplicate copy", rec.messages[1])
+	}
+	assertNoOccurrenceCount(t, rec.messages[1])
+
+	if err := db.First(&record).Error; err != nil {
+		t.Fatalf("reload record after next occurrence: %v", err)
+	}
+	if record.ForwardCount != 5 {
+		t.Errorf("ForwardCount after next occurrence = %d, want 5", record.ForwardCount)
+	}
+	if record.PendingPair == nil || *record.PendingPair {
+		t.Errorf("PendingPair after next occurrence = %v, want false", record.PendingPair)
 	}
 }
 
