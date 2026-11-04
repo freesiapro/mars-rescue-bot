@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -17,6 +18,7 @@ import (
 	"mars-rescue-bot/internal/database"
 	"mars-rescue-bot/internal/handler"
 	"mars-rescue-bot/internal/logger"
+	"mars-rescue-bot/internal/maintenance"
 	"mars-rescue-bot/internal/names"
 	"mars-rescue-bot/internal/repo"
 )
@@ -65,6 +67,14 @@ func main() {
 	msgHandler := handler.NewMessageHandler(processor)
 	msgHandler.Register(bot)
 
+	slog.Info("数据保留策略已启用", "days", config.DataRetentionDays)
+	maintCtx, stopMaintenance := context.WithCancel(context.Background())
+	maintenanceDone := make(chan struct{})
+	go func() {
+		defer close(maintenanceDone)
+		maintenance.New(database.DB, config.DataRetentionDays).Start(maintCtx, 24*time.Hour)
+	}()
+
 	slog.Info("火星救援 Bot 启动成功")
 
 	sigCh := make(chan os.Signal, 1)
@@ -78,6 +88,8 @@ func main() {
 	// Start 会阻塞，直到 Stop 被调用。
 	bot.Start()
 	signal.Stop(sigCh)
+	stopMaintenance()
+	<-maintenanceDone
 
 	if sqlDB, err := database.DB.DB(); err != nil {
 		slog.Error("获取数据库连接失败", "error", err)
