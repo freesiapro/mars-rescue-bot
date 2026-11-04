@@ -78,6 +78,80 @@ func TestTextKeyUsesHMACAndNoPlaintext(t *testing.T) {
 	}
 }
 
+func TestMessageLink(t *testing.T) {
+	tests := []struct {
+		name      string
+		chat      *telebot.Chat
+		messageID int
+		want      string
+		wantOK    bool
+	}{
+		{
+			name:      "public supergroup",
+			chat:      &telebot.Chat{ID: -1001234567890, Type: telebot.ChatSuperGroup, Username: "public_group"},
+			messageID: 42,
+			want:      "https://t.me/public_group/42",
+			wantOK:    true,
+		},
+		{
+			name:      "private supergroup",
+			chat:      &telebot.Chat{ID: -1001234567890, Type: telebot.ChatSuperGroup},
+			messageID: 42,
+			want:      "https://t.me/c/1234567890/42",
+			wantOK:    true,
+		},
+		{
+			name:      "basic group has no public link",
+			chat:      &telebot.Chat{ID: -123456, Type: telebot.ChatGroup},
+			messageID: 42,
+			wantOK:    false,
+		},
+		{
+			name:      "invalid message id",
+			chat:      &telebot.Chat{ID: -1001234567890, Type: telebot.ChatSuperGroup},
+			messageID: 0,
+			wantOK:    false,
+		},
+		{
+			name:      "nil chat",
+			messageID: 42,
+			wantOK:    false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := messageLink(tt.chat, tt.messageID)
+			if got != tt.want || ok != tt.wantOK {
+				t.Errorf("messageLink() = (%q, %v), want (%q, %v)", got, ok, tt.want, tt.wantOK)
+			}
+		})
+	}
+}
+
+func TestProcessorTextReplyUsesPublicGroupLink(t *testing.T) {
+	p, _, _ := setupProcessor(t)
+	rec := &replyRecorder{}
+	chat := &telebot.Chat{ID: testChatID, Type: telebot.ChatSuperGroup, Username: "public_group"}
+
+	if err := p.ProcessMessage(&telebot.Message{
+		ID: 10, Text: "hello mars", Sender: &telebot.User{ID: 1, FirstName: "A"}, Chat: chat,
+	}, "trace", rec.reply); err != nil {
+		t.Fatalf("first ProcessMessage() error = %v", err)
+	}
+	if err := p.ProcessMessage(&telebot.Message{
+		ID: 11, Text: "hello mars", Sender: &telebot.User{ID: 2, FirstName: "B"}, Chat: chat,
+	}, "trace", rec.reply); err != nil {
+		t.Fatalf("second ProcessMessage() error = %v", err)
+	}
+
+	if len(rec.messages) != 1 {
+		t.Fatalf("replies = %#v, want 1", rec.messages)
+	}
+	if !strings.Contains(rec.messages[0], "https://t.me/public_group/10") {
+		t.Errorf("reply = %q, want public group link", rec.messages[0])
+	}
+}
+
 func TestProcessorFirstMessageNoReply(t *testing.T) {
 	p, _, db := setupProcessor(t)
 	rec := &replyRecorder{}
