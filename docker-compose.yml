@@ -1,0 +1,15 @@
+services:
+  bot:
+    build: .
+    image: mars-rescue-bot:latest
+    env_file:
+      - .env
+    environment:
+      # 覆盖 .env 中可能存在的相对路径，确保数据库落在数据卷内。
+      DB_PATH: /data/bot.db
+    volumes:
+      - mars-data:/data
+    restart: unless-stopped
+
+volumes:
+  mars-data:
