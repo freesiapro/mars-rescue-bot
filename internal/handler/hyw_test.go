@@ -312,6 +312,35 @@ func TestHYWRecordedText(t *testing.T) {
 	t.Logf("hyw reply: %s", reply)
 }
 
+func TestHYWRecordedPureLink(t *testing.T) {
+	h, r, _ := setupHYW(t)
+	const link = "https://example.com/a/b?x=1"
+	first := hywTextMessage(hywTestChatID, 1, link, 10)
+	second := hywTextMessage(hywTestChatID, 2, link, 16)
+	seedHYWMessage(t, r, first, 0)
+	seedHYWMessage(t, r, second, 0)
+
+	ctx, _ := runHYW(t, h, hywTestChatID, second)
+	reply := assertHYWReplyToTarget(t, ctx, second)
+	for _, want := range []string{
+		"📒 记着呢：链接 · 指纹 ",
+		"累计 2 次",
+		"决策：alerted（这次提醒发出去了）",
+	} {
+		if !strings.Contains(reply, want) {
+			t.Errorf("reply = %q, want containing %q", reply, want)
+		}
+	}
+	content := bot.AnalyzeMessageContent(second, hywTestSecret)
+	if !strings.Contains(reply, content.Hash) {
+		t.Errorf("reply = %q, want 8-char hash %q", reply, content.Hash)
+	}
+	if strings.Contains(reply, "example.com") || strings.Contains(reply, content.Key) {
+		t.Errorf("reply = %q, must not contain the URL or full content key", reply)
+	}
+	t.Logf("hyw link reply: %s", reply)
+}
+
 func TestHYWRecordedRichMessage(t *testing.T) {
 	h, r, _ := setupHYW(t)
 	plain := hywTextMessage(hywTestChatID, 1, "hyw rich text", 10)

@@ -12,8 +12,8 @@ import (
 type MessageContent struct {
 	Key          string
 	Hash         string
-	Kind         string // channel / media / text，用于提醒文案和日志
-	KeyType      string // 展示用：文本、图片、视频、动图、文件、频道转发
+	Kind         string // channel / media / link / text，用于提醒文案和日志
+	KeyType      string // 展示用：文本、链接、图片、视频、动图、文件、频道转发
 	MediaSubject string
 	SkipDecision string
 }
@@ -76,6 +76,18 @@ func AnalyzeMessageContent(msg *telebot.Message, secret string) MessageContent {
 			return MessageContent{SkipDecision: DecisionUnsupportedType}
 		}
 		return MessageContent{SkipDecision: DecisionNoContent}
+	}
+
+	// 纯链接消息单独使用链接键。它没有“普通文字”，不能走 4 字符下限，
+	// 否则 URL 会在 HasContent 里被剥掉而误判为太短。
+	if urls, ok := messageLinkURLs(msg); ok {
+		key := linkContentKey(secret, urls)
+		return MessageContent{
+			Key:     key,
+			Hash:    contentKeyHash(secret, key),
+			Kind:    "link",
+			KeyType: "链接",
+		}
 	}
 
 	normalized := textnorm.Normalize(text)
