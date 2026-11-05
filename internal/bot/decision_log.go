@@ -132,6 +132,11 @@ func messageType(msg *telebot.Message) string {
 	if isChannelForward(msg) {
 		return "channel_forward"
 	}
+	// 纯链接优先于 rich_message：这类消息实际走链接键，msg_type 应与
+	// 内容键类型一致。含其它文字的富文本仍记为 rich_message。
+	if isPureLinkMessage(msg) {
+		return "link"
+	}
 	if msg.RichMessage != nil {
 		return "rich_message"
 	}
@@ -164,7 +169,7 @@ func messageType(msg *telebot.Message) string {
 }
 
 // contentKeyHash 生成可安全写入日志的键指纹。
-// 文本键本身就是 HMAC-SHA256，直接取十六进制结果前 8 位；
+// 文本键和链接键本身就是 HMAC-SHA256，直接取十六进制结果前 8 位；
 // 媒体/频道键包含 file_unique_id 或原频道 ID，不能明文输出，因此用
 // DEDUP_SECRET 再做一次 HMAC-SHA256，同样只取前 8 位。没有内容键时返回空。
 func contentKeyHash(secret, key string) string {
@@ -173,6 +178,12 @@ func contentKeyHash(secret, key string) string {
 	}
 	if strings.HasPrefix(key, textContentKeyPrefix) {
 		sum := strings.TrimPrefix(key, textContentKeyPrefix)
+		if len(sum) >= 8 {
+			return sum[:8]
+		}
+	}
+	if strings.HasPrefix(key, linkContentKeyPrefix) {
+		sum := strings.TrimPrefix(key, linkContentKeyPrefix)
 		if len(sum) >= 8 {
 			return sum[:8]
 		}

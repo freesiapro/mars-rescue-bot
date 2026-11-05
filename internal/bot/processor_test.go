@@ -1300,7 +1300,6 @@ func TestProcessorSkipsTextBelowMinimumContent(t *testing.T) {
 		text string
 	}{
 		{"too short", "hi"},
-		{"pure url", "https://example.com/a/b"},
 		{"url with too little text", "看 https://example.com/a/b"},
 		{"emoji only", "👍👍👍👍"},
 		{"punctuation only", "！！！！"},
