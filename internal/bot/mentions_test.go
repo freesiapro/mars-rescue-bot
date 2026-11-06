@@ -311,7 +311,7 @@ func TestAnalyzeMessageContentMentionWithContentStillDetected(t *testing.T) {
 		{
 			name: "mention plus text",
 			msg: func(t *testing.T) *telebot.Message {
-				msg := mentionTextMessage("@Alice 你好", 621)
+				msg := mentionTextMessage("@Alice 今天天气不错", 621)
 				addEntity(msg, telebot.EntityMention, "@Alice")
 				return msg
 			},
@@ -346,7 +346,7 @@ func TestAnalyzeMessageContentMentionWithContentStillDetected(t *testing.T) {
 					"rich_message": {"blocks": [
 						{"type": "paragraph", "text": [
 							{"type": "mention", "username": "Bob"},
-							" hello mars"
+							" hello mars bot"
 						]}
 					]}
 				}`)

@@ -84,7 +84,7 @@ func assertAlertCopyOmissions(t *testing.T, copy string) {
 }
 
 func TestTextKeyUsesHMACAndNoPlaintext(t *testing.T) {
-	key := textContentKey("secret", "hello mars")
+	key := textContentKey("secret", "hello mars bot")
 	if !strings.HasPrefix(key, "text:v2:") {
 		t.Errorf("key = %q, want text:v2: prefix", key)
 	}
@@ -92,12 +92,12 @@ func TestTextKeyUsesHMACAndNoPlaintext(t *testing.T) {
 		t.Errorf("key = %q, must not contain plaintext", key)
 	}
 
-	other := textContentKey("other-secret", "hello mars")
+	other := textContentKey("other-secret", "hello mars bot")
 	if key == other {
 		t.Error("different secrets should produce different keys")
 	}
 
-	again := textContentKey("secret", "hello mars")
+	again := textContentKey("secret", "hello mars bot")
 	if key != again {
 		t.Error("same secret and text should be deterministic")
 	}
@@ -159,12 +159,12 @@ func TestProcessorTextReplyUsesPublicGroupLink(t *testing.T) {
 	chat := &telebot.Chat{ID: testChatID, Type: telebot.ChatSuperGroup, Username: "public_group"}
 
 	if err := p.ProcessMessage(&telebot.Message{
-		ID: 10, Text: "hello mars", Sender: &telebot.User{ID: 1, FirstName: "A"}, Chat: chat,
+		ID: 10, Text: "hello mars bot", Sender: &telebot.User{ID: 1, FirstName: "A"}, Chat: chat,
 	}, "trace", rec.reply); err != nil {
 		t.Fatalf("first ProcessMessage() error = %v", err)
 	}
 	if err := p.ProcessMessage(&telebot.Message{
-		ID: 11, Text: "hello mars", Sender: &telebot.User{ID: 2, FirstName: "B"}, Chat: chat,
+		ID: 11, Text: "hello mars bot", Sender: &telebot.User{ID: 2, FirstName: "B"}, Chat: chat,
 	}, "trace", rec.reply); err != nil {
 		t.Fatalf("second ProcessMessage() error = %v", err)
 	}
@@ -182,10 +182,10 @@ func TestProcessorReplyIncludesFirstSender(t *testing.T) {
 	p, _, db := setupProcessor(t)
 	rec := &replyRecorder{}
 
-	if err := p.ProcessMessage(textMessage(testChatID, 7, "Alice", "hello mars", 10), "trace", rec.reply); err != nil {
+	if err := p.ProcessMessage(textMessage(testChatID, 7, "Alice", "hello mars bot", 10), "trace", rec.reply); err != nil {
 		t.Fatalf("first ProcessMessage() error = %v", err)
 	}
-	if err := p.ProcessMessage(textMessage(testChatID, 8, "Bob", "hello mars", 11), "trace", rec.reply); err != nil {
+	if err := p.ProcessMessage(textMessage(testChatID, 8, "Bob", "hello mars bot", 11), "trace", rec.reply); err != nil {
 		t.Fatalf("second ProcessMessage() error = %v", err)
 	}
 
@@ -244,9 +244,9 @@ func TestProcessorBasicGroupReplyHasNoLink(t *testing.T) {
 	rec := &replyRecorder{}
 	chat := &telebot.Chat{ID: -123456, Type: telebot.ChatGroup}
 
-	first := textMessage(chat.ID, 1, "Alice", "hello mars", 10)
+	first := textMessage(chat.ID, 1, "Alice", "hello mars bot", 10)
 	first.Chat = chat
-	second := textMessage(chat.ID, 2, "Bob", "hello mars", 11)
+	second := textMessage(chat.ID, 2, "Bob", "hello mars bot", 11)
 	second.Chat = chat
 
 	if err := p.ProcessMessage(first, "trace", rec.reply); err != nil {
@@ -530,7 +530,7 @@ func TestProcessorFirstMessageNoReply(t *testing.T) {
 	p, _, db := setupProcessor(t)
 	rec := &replyRecorder{}
 
-	if err := p.ProcessMessage(textMessage(testChatID, 1, "A", "hello mars", 10), "trace", rec.reply); err != nil {
+	if err := p.ProcessMessage(textMessage(testChatID, 1, "A", "hello mars bot", 10), "trace", rec.reply); err != nil {
 		t.Fatalf("ProcessMessage() error = %v", err)
 	}
 	if len(rec.messages) != 0 {
@@ -558,8 +558,8 @@ func TestProcessorFirstMessageNoReply(t *testing.T) {
 func TestProcessorSelfRepeatRepliesWithMention(t *testing.T) {
 	p, _, db := setupProcessor(t)
 	rec := &replyRecorder{}
-	msg1 := textMessage(testChatID, 7, "<A&B>", "hello mars", 10)
-	msg2 := textMessage(testChatID, 7, "<A&B>", "hello mars", 11)
+	msg1 := textMessage(testChatID, 7, "<A&B>", "hello mars bot", 10)
+	msg2 := textMessage(testChatID, 7, "<A&B>", "hello mars bot", 11)
 
 	if err := p.ProcessMessage(msg1, "trace", rec.reply); err != nil {
 		t.Fatalf("first ProcessMessage() error = %v", err)
@@ -592,7 +592,7 @@ func TestProcessorSelfRepeatRepliesWithMention(t *testing.T) {
 	if !strings.HasPrefix(record.ContentKey, "text:v2:") {
 		t.Errorf("ContentKey = %q, want text:v2: prefix", record.ContentKey)
 	}
-	if strings.Contains(record.ContentKey, "hello mars") {
+	if strings.Contains(record.ContentKey, "hello mars bot") {
 		t.Errorf("ContentKey = %q, must not contain plaintext", record.ContentKey)
 	}
 	if record.ForwardCount != 2 {
@@ -616,7 +616,7 @@ func TestProcessorDisabledChatDoesNotRecordOrReply(t *testing.T) {
 	}
 
 	for i := 0; i < 2; i++ {
-		if err := p.ProcessMessage(textMessage(testChatID, 1, "A", "hello mars", 10+i), "trace", rec.reply); err != nil {
+		if err := p.ProcessMessage(textMessage(testChatID, 1, "A", "hello mars bot", 10+i), "trace", rec.reply); err != nil {
 			t.Fatalf("ProcessMessage() error = %v", err)
 		}
 	}
@@ -640,7 +640,7 @@ func TestProcessorIgnoredUserDoesNotRecordOrReply(t *testing.T) {
 	}
 
 	for i := 0; i < 2; i++ {
-		if err := p.ProcessMessage(textMessage(testChatID, 1, "A", "hello mars", 10+i), "trace", rec.reply); err != nil {
+		if err := p.ProcessMessage(textMessage(testChatID, 1, "A", "hello mars bot", 10+i), "trace", rec.reply); err != nil {
 			t.Fatalf("ProcessMessage() error = %v", err)
 		}
 	}
@@ -666,9 +666,9 @@ func TestProcessorCooldownSuppressesReplyButStillRecords(t *testing.T) {
 	p.cooldown.now = func() time.Time { return now }
 
 	messages := []*telebot.Message{
-		textMessage(testChatID, 1, "A", "hello mars", 10), // first: record only
-		textMessage(testChatID, 2, "B", "hello mars", 11), // duplicate: reply
-		textMessage(testChatID, 3, "C", "hello mars", 12), // duplicate within cooldown: no reply
+		textMessage(testChatID, 1, "A", "hello mars bot", 10), // first: record only
+		textMessage(testChatID, 2, "B", "hello mars bot", 11), // duplicate: reply
+		textMessage(testChatID, 3, "C", "hello mars bot", 12), // duplicate within cooldown: no reply
 	}
 	for _, msg := range messages {
 		if err := p.ProcessMessage(msg, "trace", rec.reply); err != nil {
@@ -680,7 +680,7 @@ func TestProcessorCooldownSuppressesReplyButStillRecords(t *testing.T) {
 	}
 
 	now = now.Add(61 * time.Second)
-	if err := p.ProcessMessage(textMessage(testChatID, 4, "D", "hello mars", 13), "trace", rec.reply); err != nil {
+	if err := p.ProcessMessage(textMessage(testChatID, 4, "D", "hello mars bot", 13), "trace", rec.reply); err != nil {
 		t.Fatalf("ProcessMessage() error = %v", err)
 	}
 	if len(rec.messages) != 2 {
@@ -703,8 +703,8 @@ func TestProcessorMentionOff(t *testing.T) {
 		t.Fatalf("SetChatMention() error = %v", err)
 	}
 
-	msg1 := textMessage(testChatID, 7, "<A>", "hello mars", 10)
-	msg2 := textMessage(testChatID, 7, "<A>", "hello mars", 11)
+	msg1 := textMessage(testChatID, 7, "<A>", "hello mars bot", 10)
+	msg2 := textMessage(testChatID, 7, "<A>", "hello mars bot", 11)
 	if err := p.ProcessMessage(msg1, "trace", rec.reply); err != nil {
 		t.Fatalf("first ProcessMessage() error = %v", err)
 	}
@@ -793,10 +793,10 @@ func TestProcessorKeepsChatsSeparate(t *testing.T) {
 	p, _, db := setupProcessor(t)
 	rec := &replyRecorder{}
 
-	if err := p.ProcessMessage(textMessage(-1001, 1, "A", "same text", 10), "trace", rec.reply); err != nil {
+	if err := p.ProcessMessage(textMessage(-1001, 1, "A", "same text here", 10), "trace", rec.reply); err != nil {
 		t.Fatalf("chat 1 ProcessMessage() error = %v", err)
 	}
-	if err := p.ProcessMessage(textMessage(-1002, 1, "A", "same text", 11), "trace", rec.reply); err != nil {
+	if err := p.ProcessMessage(textMessage(-1002, 1, "A", "same text here", 11), "trace", rec.reply); err != nil {
 		t.Fatalf("chat 2 ProcessMessage() error = %v", err)
 	}
 	if len(rec.messages) != 0 {
@@ -816,7 +816,7 @@ func TestProcessorPairingAlertsEverySecondOccurrence(t *testing.T) {
 	rec := &replyRecorder{}
 
 	for i := 0; i < 5; i++ {
-		msg := textMessage(testChatID, int64(i+1), "A", "pair me", 10+i)
+		msg := textMessage(testChatID, int64(i+1), "A", "pair me please", 10+i)
 		if err := p.ProcessMessage(msg, "trace", rec.reply); err != nil {
 			t.Fatalf("occurrence %d ProcessMessage() error = %v", i+1, err)
 		}
@@ -860,7 +860,7 @@ func TestAlertCountExceedsTwo(t *testing.T) {
 	var alertTexts []string
 	for i := 0; i < 6; i++ {
 		before := len(rec.snapshot())
-		msg := textMessage(testChatID, int64(i+1), "A", "count me", 10+i)
+		msg := textMessage(testChatID, int64(i+1), "A", "count me again", 10+i)
 		if err := p.ProcessMessage(msg, "trace", rec.reply); err != nil {
 			t.Fatalf("occurrence %d ProcessMessage() error = %v", i+1, err)
 		}
@@ -906,12 +906,12 @@ func TestProcessorPairingIndependentPerContentAndChat(t *testing.T) {
 	rec := &replyRecorder{}
 
 	msgs := []*telebot.Message{
-		textMessage(-1001, 1, "A", "alpha", 10), // chat1 alpha: 第 1 次，静默
-		textMessage(-1002, 1, "A", "alpha", 11), // chat2 alpha: 第 1 次，静默
-		textMessage(-1001, 1, "A", "beta", 12),  // chat1 beta:  第 1 次，静默
-		textMessage(-1001, 1, "A", "alpha", 13), // chat1 alpha: 第 2 次，提醒
-		textMessage(-1002, 1, "A", "alpha", 14), // chat2 alpha: 第 2 次，提醒
-		textMessage(-1001, 1, "A", "beta", 15),  // chat1 beta:  第 2 次，提醒
+		textMessage(-1001, 1, "A", "alpha content", 10), // chat1 alpha: 第 1 次，静默
+		textMessage(-1002, 1, "A", "alpha content", 11), // chat2 alpha: 第 1 次，静默
+		textMessage(-1001, 1, "A", "beta content", 12),  // chat1 beta:  第 1 次，静默
+		textMessage(-1001, 1, "A", "alpha content", 13), // chat1 alpha: 第 2 次，提醒
+		textMessage(-1002, 1, "A", "alpha content", 14), // chat2 alpha: 第 2 次，提醒
+		textMessage(-1001, 1, "A", "beta content", 15),  // chat1 beta:  第 2 次，提醒
 	}
 	for i, msg := range msgs {
 		if err := p.ProcessMessage(msg, "trace", rec.reply); err != nil {
@@ -936,7 +936,7 @@ func TestProcessorPairingSurvivesRestart(t *testing.T) {
 	p, _, db := setupProcessor(t)
 	rec := &replyRecorder{}
 
-	if err := p.ProcessMessage(textMessage(testChatID, 1, "A", "persist", 10), "trace", rec.reply); err != nil {
+	if err := p.ProcessMessage(textMessage(testChatID, 1, "A", "persist content", 10), "trace", rec.reply); err != nil {
 		t.Fatalf("first ProcessMessage() error = %v", err)
 	}
 
@@ -949,7 +949,7 @@ func TestProcessorPairingSurvivesRestart(t *testing.T) {
 	}
 
 	p2 := restarted()
-	if err := p2.ProcessMessage(textMessage(testChatID, 2, "B", "persist", 11), "trace", rec.reply); err != nil {
+	if err := p2.ProcessMessage(textMessage(testChatID, 2, "B", "persist content", 11), "trace", rec.reply); err != nil {
 		t.Fatalf("second ProcessMessage() after restart error = %v", err)
 	}
 	if len(rec.messages) != 1 {
@@ -957,7 +957,7 @@ func TestProcessorPairingSurvivesRestart(t *testing.T) {
 	}
 
 	p3 := restarted()
-	if err := p3.ProcessMessage(textMessage(testChatID, 3, "C", "persist", 12), "trace", rec.reply); err != nil {
+	if err := p3.ProcessMessage(textMessage(testChatID, 3, "C", "persist content", 12), "trace", rec.reply); err != nil {
 		t.Fatalf("third ProcessMessage() after restart error = %v", err)
 	}
 	if len(rec.messages) != 1 {
@@ -965,7 +965,7 @@ func TestProcessorPairingSurvivesRestart(t *testing.T) {
 	}
 
 	p4 := restarted()
-	if err := p4.ProcessMessage(textMessage(testChatID, 4, "D", "persist", 13), "trace", rec.reply); err != nil {
+	if err := p4.ProcessMessage(textMessage(testChatID, 4, "D", "persist content", 13), "trace", rec.reply); err != nil {
 		t.Fatalf("fourth ProcessMessage() after restart error = %v", err)
 	}
 	if len(rec.messages) != 2 {
@@ -977,18 +977,18 @@ func TestProcessorSendFailureDoesNotCancelPair(t *testing.T) {
 	p, _, db := setupProcessor(t)
 	rec := &replyRecorder{}
 
-	if err := p.ProcessMessage(textMessage(testChatID, 1, "A", "retry me", 10), "trace", rec.reply); err != nil {
+	if err := p.ProcessMessage(textMessage(testChatID, 1, "A", "retry me again", 10), "trace", rec.reply); err != nil {
 		t.Fatalf("first ProcessMessage() error = %v", err)
 	}
 
 	sendErr := errors.New("telegram unavailable")
 	failingReply := func(string) error { return sendErr }
-	if err := p.ProcessMessage(textMessage(testChatID, 2, "B", "retry me", 11), "trace", failingReply); !errors.Is(err, sendErr) {
+	if err := p.ProcessMessage(textMessage(testChatID, 2, "B", "retry me again", 11), "trace", failingReply); !errors.Is(err, sendErr) {
 		t.Fatalf("second ProcessMessage() error = %v, want %v", err, sendErr)
 	}
 
 	// 提醒发送失败，配对没有真正取消：下一次出现应再次尝试提醒。
-	if err := p.ProcessMessage(textMessage(testChatID, 3, "C", "retry me", 12), "trace", rec.reply); err != nil {
+	if err := p.ProcessMessage(textMessage(testChatID, 3, "C", "retry me again", 12), "trace", rec.reply); err != nil {
 		t.Fatalf("third ProcessMessage() error = %v", err)
 	}
 	if len(rec.messages) != 1 {
@@ -996,7 +996,7 @@ func TestProcessorSendFailureDoesNotCancelPair(t *testing.T) {
 	}
 
 	// 第 4 次出现开启新的一对，仍然静默。
-	if err := p.ProcessMessage(textMessage(testChatID, 4, "D", "retry me", 13), "trace", rec.reply); err != nil {
+	if err := p.ProcessMessage(textMessage(testChatID, 4, "D", "retry me again", 13), "trace", rec.reply); err != nil {
 		t.Fatalf("fourth ProcessMessage() error = %v", err)
 	}
 	if len(rec.messages) != 1 {
@@ -1029,10 +1029,10 @@ func TestProcessorCooldownSuppressionDoesNotCancelPair(t *testing.T) {
 	p.cooldown.now = func() time.Time { return now }
 
 	messages := []*telebot.Message{
-		textMessage(testChatID, 1, "A", "cool down", 10), // 第 1 次：静默
-		textMessage(testChatID, 2, "B", "cool down", 11), // 第 2 次：提醒
-		textMessage(testChatID, 3, "C", "cool down", 12), // 第 3 次：静默
-		textMessage(testChatID, 4, "D", "cool down", 13), // 第 4 次：提醒但被冷却抑制
+		textMessage(testChatID, 1, "A", "cool down now", 10), // 第 1 次：静默
+		textMessage(testChatID, 2, "B", "cool down now", 11), // 第 2 次：提醒
+		textMessage(testChatID, 3, "C", "cool down now", 12), // 第 3 次：静默
+		textMessage(testChatID, 4, "D", "cool down now", 13), // 第 4 次：提醒但被冷却抑制
 	}
 	for i, msg := range messages {
 		if err := p.ProcessMessage(msg, "trace", rec.reply); err != nil {
@@ -1045,7 +1045,7 @@ func TestProcessorCooldownSuppressionDoesNotCancelPair(t *testing.T) {
 
 	// 被冷却抑制的一对不能算作已取消，冷却结束后下一次出现仍可提醒。
 	now = now.Add(61 * time.Second)
-	if err := p.ProcessMessage(textMessage(testChatID, 5, "E", "cool down", 14), "trace", rec.reply); err != nil {
+	if err := p.ProcessMessage(textMessage(testChatID, 5, "E", "cool down now", 14), "trace", rec.reply); err != nil {
 		t.Fatalf("fifth ProcessMessage() error = %v", err)
 	}
 	if len(rec.messages) != 2 {
@@ -1124,7 +1124,7 @@ func TestProcessorConcurrentOccurrencesAlertOncePerPair(t *testing.T) {
 	p, _, db := setupProcessor(t)
 	rec := &replyRecorder{}
 
-	if err := p.ProcessMessage(textMessage(testChatID, 1, "A", "race", 10), "trace", rec.reply); err != nil {
+	if err := p.ProcessMessage(textMessage(testChatID, 1, "A", "race content", 10), "trace", rec.reply); err != nil {
 		t.Fatalf("first ProcessMessage() error = %v", err)
 	}
 
@@ -1135,7 +1135,7 @@ func TestProcessorConcurrentOccurrencesAlertOncePerPair(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			msg := textMessage(testChatID, int64(100+i), "A", "race", 100+i)
+			msg := textMessage(testChatID, int64(100+i), "A", "race content", 100+i)
 			errs <- p.ProcessMessage(msg, "trace", rec.reply)
 		}(i)
 	}
@@ -1185,7 +1185,7 @@ func TestProcessorLegacyRecordsDerivePendingFromParity(t *testing.T) {
 	// 旧数据：ForwardCount=1 表示还有一次未配对的出现，下一次应提醒。
 	if err := db.Create(&models.ForwardRecord{
 		ChatID:           testChatID,
-		ContentKey:       textKeyFor("test-secret", "legacy-odd"),
+		ContentKey:       textKeyFor("test-secret", "legacy-odd-one"),
 		ForwardCount:     1,
 		FirstTargetMsgID: 6,
 	}).Error; err != nil {
@@ -1216,7 +1216,7 @@ func TestProcessorLegacyRecordsDerivePendingFromParity(t *testing.T) {
 	}
 
 	// 奇数旧记录的第 2 次出现：提醒。
-	if err := p.ProcessMessage(textMessage(testChatID, 3, "C", "legacy-odd", 12), "trace", rec.reply); err != nil {
+	if err := p.ProcessMessage(textMessage(testChatID, 3, "C", "legacy-odd-one", 12), "trace", rec.reply); err != nil {
 		t.Fatalf("legacy-odd second ProcessMessage() error = %v", err)
 	}
 	if len(rec.messages) != 2 {
@@ -1232,13 +1232,13 @@ func TestProcessorNormalizesTextBeforeMatching(t *testing.T) {
 	}{
 		{
 			name:  "width case whitespace and punctuation",
-			first: "Ｈｅｌｌｏ，   ＭＡＲＳ！",
-			again: "hello mars",
+			first: "Ｈｅｌｌｏ，   ＭＡＲＳ ＢＯＴ！",
+			again: "hello mars bot",
 		},
 		{
 			name:  "url tracking params",
-			first: "请看这个 https://example.com/post?utm_source=a",
-			again: "请看这个 https://example.com/post?utm_source=b",
+			first: "请看这个内容真的很有意思 https://example.com/post?utm_source=a",
+			again: "请看这个内容真的很有意思 https://example.com/post?utm_source=b",
 		},
 	}
 	for _, tt := range tests {
@@ -1271,13 +1271,13 @@ func TestProcessorCollapsesButDoesNotRemoveSpaces(t *testing.T) {
 	p, _, db := setupProcessor(t)
 	rec := &replyRecorder{}
 
-	if err := p.ProcessMessage(textMessage(testChatID, 1, "A", "foo bar", 10), "trace", rec.reply); err != nil {
+	if err := p.ProcessMessage(textMessage(testChatID, 1, "A", "foo bar baz qux", 10), "trace", rec.reply); err != nil {
 		t.Fatalf("first ProcessMessage() error = %v", err)
 	}
-	if err := p.ProcessMessage(textMessage(testChatID, 2, "B", "foobar", 11), "trace", rec.reply); err != nil {
+	if err := p.ProcessMessage(textMessage(testChatID, 2, "B", "foobarbazqux", 11), "trace", rec.reply); err != nil {
 		t.Fatalf("second ProcessMessage() error = %v", err)
 	}
-	if err := p.ProcessMessage(textMessage(testChatID, 3, "C", "foo   bar", 12), "trace", rec.reply); err != nil {
+	if err := p.ProcessMessage(textMessage(testChatID, 3, "C", "foo   bar baz qux", 12), "trace", rec.reply); err != nil {
 		t.Fatalf("third ProcessMessage() error = %v", err)
 	}
 
@@ -1335,10 +1335,10 @@ func TestProcessorSkipsRepeatedSingleRuneText(t *testing.T) {
 		name string
 		text string
 	}{
-		{"chinese catchphrase", "草草草草草草"},
-		{"digits", "6666666"},
+		{"chinese catchphrase", "草草草草草草草草草草"},
+		{"digits", "6666666666"},
 		{"latin", "aaaaaaaaaa"},
-		{"longer catchphrase", "哈哈哈哈哈哈哈"},
+		{"longer catchphrase", "哈哈哈哈哈哈哈哈哈哈"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1370,8 +1370,8 @@ func TestProcessorKeepsRepeatedRuneWithOtherContent(t *testing.T) {
 		name string
 		text string
 	}{
-		{"suffix breaks the run", "草草草草草草我"},
-		{"url makes it normal text", "草草草草 https://example.com/a/b"},
+		{"suffix breaks the run", "草草草草草草草草草我"},
+		{"url makes it normal text", "草草草草草草草草草草 https://example.com/a/b"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1401,9 +1401,9 @@ func TestProcessorRepeatedRuneForwardIsSkipped(t *testing.T) {
 	p, _, db := setupProcessor(t)
 	rec := &replyRecorder{}
 
-	first := forwardedTextMessage(10, forwardingUserID, "草草草草草草")
+	first := forwardedTextMessage(10, forwardingUserID, "草草草草草草草草草草")
 	first.OriginalSender = forwardOriginBotUser()
-	second := forwardedTextMessage(11, forwardingUserID+1, "草草草草草草")
+	second := forwardedTextMessage(11, forwardingUserID+1, "草草草草草草草草草草")
 	second.OriginalSender = forwardOriginBotUser()
 	processForwardMessages(t, p, rec, first, second)
 
@@ -1419,15 +1419,15 @@ func TestProcessorRepeatedRuneForwardIsSkipped(t *testing.T) {
 	}
 }
 
-func TestProcessorKeepsFourRuneTextBoundary(t *testing.T) {
+func TestProcessorKeepsTenRuneTextBoundary(t *testing.T) {
 	tests := []struct {
 		name       string
 		text       string
 		wantAlerts int
 		wantRecord int64
 	}{
-		{"four runes", "marc", 1, 1},
-		{"three runes", "mar", 0, 0},
+		{"ten runes", "abcdefghij", 1, 1},
+		{"nine runes", "abcdefghi", 0, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1456,7 +1456,7 @@ func TestProcessorIgnoresBotMessages(t *testing.T) {
 	rec := &replyRecorder{}
 
 	newBotMessage := func(id int) *telebot.Message {
-		msg := textMessage(testChatID, 99, "Bot", "hello mars", id)
+		msg := textMessage(testChatID, 99, "Bot", "hello mars bot", id)
 		msg.Sender.IsBot = true
 		return msg
 	}

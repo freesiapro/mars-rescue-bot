@@ -150,7 +150,7 @@ func TestAnalyzeMessageContentLinkCanonicalizationIsConservative(t *testing.T) {
 }
 
 func TestAnalyzeMessageContentLinkWithOtherTextStaysText(t *testing.T) {
-	const text = "请看这个 https://example.com/a/b"
+	const text = "请看这个内容真的很有意思 https://example.com/a/b"
 	content := AnalyzeMessageContent(linkMessage(text, 841), contentTestSecret)
 	if content.Kind != "text" || content.KeyType != "文本" {
 		t.Errorf("content = %+v, want text/文本", content)

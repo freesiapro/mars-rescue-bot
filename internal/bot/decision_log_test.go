@@ -149,7 +149,7 @@ func TestDecisionLogSkipBranches(t *testing.T) {
 		{
 			name: "repeated_char_skipped",
 			msg: func() *telebot.Message {
-				return textMessage(testChatID, 71, "Repeated", "哈哈哈哈哈哈", 28)
+				return textMessage(testChatID, 71, "Repeated", "哈哈哈哈哈哈哈哈哈哈", 28)
 			},
 			want:     DecisionRepeatedCharSkipped,
 			wantType: "text",
@@ -465,11 +465,11 @@ func TestDecisionLogSendFailedRolledBack(t *testing.T) {
 	buf := captureDecisionLog(t, p)
 	replies := &replyRecorder{}
 
-	if err := p.ProcessMessage(textMessage(testChatID, 1, "A", "retry me", 10), "trace", replies.reply); err != nil {
+	if err := p.ProcessMessage(textMessage(testChatID, 1, "A", "retry me again", 10), "trace", replies.reply); err != nil {
 		t.Fatalf("first ProcessMessage() error = %v", err)
 	}
 	sendErr := errors.New("telegram unavailable")
-	err := p.ProcessMessage(textMessage(testChatID, 2, "B", "retry me", 11), "trace", func(string) error {
+	err := p.ProcessMessage(textMessage(testChatID, 2, "B", "retry me again", 11), "trace", func(string) error {
 		return sendErr
 	})
 	if !errors.Is(err, sendErr) {
