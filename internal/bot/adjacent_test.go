@@ -131,8 +131,9 @@ func TestAdjacentRepeatChainCountsForLeaderboardWithoutAlerts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetTopRescuers() error = %v", err)
 	}
-	if len(stats) != 1 || stats[0].UserID != 1 || stats[0].RescueCount != 10 {
-		t.Errorf("leaderboard = %#v, want user 1 with 10 occurrences", stats)
+	// 10 次出现里第 1 次是首次记录，排行榜只计后续 9 次重复出现。
+	if len(stats) != 1 || stats[0].UserID != 1 || stats[0].RescueCount != 9 {
+		t.Errorf("leaderboard = %#v, want user 1 with 9 repeat occurrences", stats)
 	}
 }
 

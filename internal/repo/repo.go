@@ -20,8 +20,8 @@ func New(db *gorm.DB) *Repo {
 
 // FindOrCreateRecord 返回 (chat, key) 对应的记录。
 //
-// 首次出现时会在同一事务内创建记录并写入第 1 条 ForwardLog，保证“每次出现
-// 都计入排行榜”的统计口径；后续出现由 DecideAndLog 负责计数和写日志。
+// 首次出现时会在同一事务内创建记录并写入第 1 条 ForwardLog。排行榜只统计
+// 重复出现，查询时会排除这条首次流水；后续出现由 DecideAndLog 负责计数和写日志。
 func (r *Repo) FindOrCreateRecord(chatID int64, key string, targetMsgID int, senderID int64) (*models.ForwardRecord, bool, error) {
 	pending := true
 	lastMsgID := targetMsgID
@@ -107,8 +107,8 @@ type PairDecision struct {
 //
 // 配对规则：第 1 次出现只记录并置为待配对；第 2 次与其配对并发提醒；
 // 第 3 次重新开启新的一对但不提醒；第 4 次再配对提醒，依此类推。
-// 无论是否发送提醒，每次出现都会自增 ForwardCount 并写入 ForwardLog，
-// 因此排行榜统计与取消配对无关。
+// 无论是否发送提醒，每次出现都会自增 ForwardCount 并写入 ForwardLog；
+// 排行榜只统计除首次之外的流水，因此与取消配对无关。
 //
 // 并发安全：分支 1 的 WHERE 条件只匹配“仍有待配对出现”的行，并用 RowsAffected
 // 判断本次调用是否抢到了这一对；抢不到的并发调用会落到分支 2，成为新的待配对出现。
@@ -307,21 +307,24 @@ func (r *Repo) IncrementUserCount(userID int64) error {
 		UpdateColumn("rescue_count", gorm.Expr("rescue_count + 1")).Error
 }
 
-// GetTopRescuers 返回 since 之后、按“出现次数”统计的群排行榜。
-// since 为零值时统计全部历史。每次出现（包括第 1 次和同一用户重复发送）都会
-// 写入 forward_logs，因此直接 COUNT(*)。不 JOIN user_stats：排行榜只依赖
-// sender_id，姓名由调用方在展示时解析。
+// GetTopRescuers 返回 since 之后、按“重复出现次数”统计的群排行榜。
+// since 为零值时统计全部历史。同一条内容在同一群的第一次出现只记录、不计入；
+// 之后每次出现都会写入 forward_logs，因此排除首次流水后 COUNT(*) 即为重复次数。
+// 时间窗口用 unixepoch 比较绝对时间，避免把 STATS_TZ 的本地时间与数据库中的
+// UTC 时间戳按字符串比较，在日界处错开若干小时。
+// 不 JOIN user_stats：排行榜只依赖 sender_id，姓名由调用方在展示时解析。
 func (r *Repo) GetTopRescuers(chatID int64, since time.Time, limit int) ([]models.UserStats, error) {
 	var stats []models.UserStats
 	query := `
 		SELECT l.sender_id AS user_id, COUNT(*) as rescue_count
 		FROM forward_logs l
 		JOIN forward_records r ON l.record_id = r.id
-		WHERE r.chat_id = ?`
+		WHERE r.chat_id = ?
+		  AND l.target_msg_id <> r.first_target_msg_id`
 	args := []interface{}{chatID}
 	if !since.IsZero() {
-		query += " AND l.created_at >= ?"
-		args = append(args, since)
+		query += " AND unixepoch(l.created_at) >= ?"
+		args = append(args, since.Unix())
 	}
 	query += `
 		GROUP BY l.sender_id
@@ -337,13 +340,14 @@ func (r *Repo) GetTopRescuers(chatID int64, since time.Time, limit int) ([]model
 	return stats, nil
 }
 
-// CountUserOccurrences 统计某用户自 since 起在本群的出现次数；since 为零值时统计全部。
+// CountUserOccurrences 统计某用户自 since 起在本群的重复出现次数；
+// 同一条内容的第一次出现不计入。since 为零值时统计全部。
 func (r *Repo) CountUserOccurrences(chatID, userID int64, since time.Time) (int64, error) {
 	query := r.db.Table("forward_logs AS l").
 		Joins("JOIN forward_records AS r ON l.record_id = r.id").
-		Where("r.chat_id = ? AND l.sender_id = ?", chatID, userID)
+		Where("r.chat_id = ? AND l.sender_id = ? AND l.target_msg_id <> r.first_target_msg_id", chatID, userID)
 	if !since.IsZero() {
-		query = query.Where("l.created_at >= ?", since)
+		query = query.Where("unixepoch(l.created_at) >= ?", since.Unix())
 	}
 	var count int64
 	if err := query.Count(&count).Error; err != nil {
@@ -361,7 +365,7 @@ func (r *Repo) LastUserOccurrence(chatID, userID int64) (last time.Time, has boo
 		Select("l.created_at").
 		Joins("JOIN forward_records AS r ON l.record_id = r.id").
 		Where("r.chat_id = ? AND l.sender_id = ?", chatID, userID).
-		Order("l.created_at DESC, l.id DESC").
+		Order("unixepoch(l.created_at) DESC, l.id DESC").
 		Limit(1).
 		Scan(&row).Error
 	if err != nil {

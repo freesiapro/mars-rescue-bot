@@ -30,7 +30,7 @@ func formatPrivacy(retentionDays int) string {
 • 文本内容键：归一化文本的 HMAC-SHA256，不保存原文
 • 媒体标识：Telegram <code>file_unique_id</code>，不下载文件内容
 • Telegram ID：群 ID、用户 ID、消息 ID；频道转发含原频道与原消息 ID
-• 排行榜：用户 ID 与出现次数，不保存用户名或姓名
+• 排行榜：用户 ID 与重复出现次数，不保存用户名或姓名
 • 群设置、忽略名单与时间戳
 
 <b>不保存</b>
