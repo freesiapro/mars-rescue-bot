@@ -14,7 +14,7 @@ import (
 )
 
 // DefaultMinRunes 是文本参与去重所需的最小有效字符数（不含 URL、空白和标点）。
-const DefaultMinRunes = 4
+const DefaultMinRunes = 10
 
 var urlPattern = regexp.MustCompile(`(?i)https?://[^\s<>"']+`)
 

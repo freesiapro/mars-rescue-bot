@@ -562,7 +562,7 @@ func TestHYWSkipReasons(t *testing.T) {
 		{
 			name: "repeated char",
 			target: func() *telebot.Message {
-				return hywTextMessage(hywTestChatID, 1, "哈哈哈哈哈哈", 11)
+				return hywTextMessage(hywTestChatID, 1, "哈哈哈哈哈哈哈哈哈哈", 11)
 			},
 			want: "复读",
 		},

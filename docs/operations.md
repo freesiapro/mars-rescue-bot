@@ -40,8 +40,8 @@
 | `alerted` | 本次出现完成配对，且提醒发送成功 |
 | `paired_silent` | 新内容首次记录，或本次出现进入等待配对、不提醒 |
 | `adjacent_repeat_exempt` | 与上一次出现的 `message_id` 相差不超过 5，按连续刷屏只计数、不提醒 |
-| `short_text_skipped` | 归一化后有效字符少于 4 个的文本，或纯表情/符号；纯链接走链接键，不会命中该分支 |
-| `repeated_char_skipped` | 归一化后所有字符都相同（如“哈哈哈哈”“666666”） |
+| `short_text_skipped` | 归一化后有效字符少于 10 个的文本，或纯表情/符号；纯链接走链接键，不会命中该分支 |
+| `repeated_char_skipped` | 归一化后所有字符都相同（如“哈哈哈哈哈哈哈哈哈哈”“6666666666”） |
 | `mention_only` | 去掉 @ 提及（`mention` / `text_mention` 实体或文本中的 `@username`）后只剩空白、标点或符号；对所有来源（含频道转发）生效，不检测、不记录、不参与配对 |
 | `bot_ignored` | 发送者本身是 bot |
 | `forward_from_bot_ignored` | 保留值，当前不可达：只有发送者是 bot 才会被忽略；人类转发 bot 内容仍按普通内容去重 |

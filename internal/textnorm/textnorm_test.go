@@ -65,12 +65,15 @@ func TestHasContent(t *testing.T) {
 		minRunes int
 		want     bool
 	}{
-		{"enough letters", "hello", DefaultMinRunes, true},
-		{"enough cjk", "你好世界", DefaultMinRunes, true},
+		{"nine letters skipped", "abcdefghi", DefaultMinRunes, false},
+		{"ten letters counted", "abcdefghij", DefaultMinRunes, true},
+		{"nine cjk skipped", "一二三四五六七八九", DefaultMinRunes, false},
+		{"ten cjk counted", "一二三四五六七八九十", DefaultMinRunes, true},
 		{"too short", "abc", DefaultMinRunes, false},
 		{"pure url", "https://example.com/a/b", DefaultMinRunes, false},
 		{"url with too little text", "看 https://example.com/a/b", DefaultMinRunes, false},
-		{"url with enough text", "请看这个 https://example.com/a/b", DefaultMinRunes, true},
+		{"url with nine text chars skipped", "请看这个内容真的很 https://example.com/a/b", DefaultMinRunes, false},
+		{"url with enough text", "请看这个内容真的很有意思 https://example.com/a/b", DefaultMinRunes, true},
 		{"emoji only", "👍👍👍👍", DefaultMinRunes, false},
 		{"punctuation only", "！！！？？", DefaultMinRunes, false},
 		{"zero means non-empty", "", 0, false},

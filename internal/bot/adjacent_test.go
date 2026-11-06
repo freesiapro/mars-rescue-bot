@@ -107,7 +107,7 @@ func TestAdjacentRepeatChainCountsForLeaderboardWithoutAlerts(t *testing.T) {
 	rec := &replyRecorder{}
 
 	for i := 0; i < 10; i++ {
-		processAdjacentText(t, p, rec, "chain text", 10+i, 1)
+		processAdjacentText(t, p, rec, "chain text go", 10+i, 1)
 	}
 
 	if len(rec.messages) != 0 {
