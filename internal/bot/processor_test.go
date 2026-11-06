@@ -838,7 +838,7 @@ func TestProcessorPairingAlertsEverySecondOccurrence(t *testing.T) {
 		if err := db.Model(&models.ForwardLog{}).Count(&logs).Error; err != nil {
 			t.Fatalf("occurrence %d count logs: %v", i+1, err)
 		}
-		// 每次出现都写日志：第 1 次出现也计入排行榜。
+		// 每次出现都写日志；排行榜统计时会排除第 1 次出现的流水。
 		if logs != int64(i+1) {
 			t.Errorf("after occurrence %d logs = %d, want %d", i+1, logs, i+1)
 		}

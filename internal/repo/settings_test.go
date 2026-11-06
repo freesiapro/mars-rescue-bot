@@ -185,7 +185,7 @@ func TestChatIgnoredUsers(t *testing.T) {
 	}
 }
 
-func TestGetTopRescuersCountsEveryOccurrence(t *testing.T) {
+func TestGetTopRescuersCountsRepeatOccurrences(t *testing.T) {
 	r := setupRepo(t)
 	const chatID = int64(-100)
 	now := time.Now()
@@ -207,53 +207,52 @@ func TestGetTopRescuersCountsEveryOccurrence(t *testing.T) {
 	}
 
 	rec1 := createRecord(chatID, "k1", 10)
-	rec2 := createRecord(chatID, "k2", 11)
-	rec3 := createRecord(chatID, "k3", 12)
-	oldRec := createRecord(chatID, "old", 13)
-	otherChatRec := createRecord(-200, "other", 14)
+	rec2 := createRecord(chatID, "k2", 20)
+	rec3 := createRecord(chatID, "k3", 30)
+	oldRec := createRecord(chatID, "old", 40)
+	otherChatRec := createRecord(-200, "other", 50)
 
-	mustCreateLog := func(recID uint64, senderID int64, at time.Time) {
+	mustCreateLog := func(recID uint64, senderID int64, targetMsgID int, at time.Time) {
 		t.Helper()
 		if err := r.db.Create(&models.ForwardLog{
 			RecordID:    recID,
 			SenderID:    senderID,
-			TargetMsgID: 1,
+			TargetMsgID: targetMsgID,
 			CreatedAt:   at,
 		}).Error; err != nil {
 			t.Fatalf("create log: %v", err)
 		}
 	}
 
-	// user 1：rec1 出现两次算 2，rec2 再算 1，共 3。
-	mustCreateLog(rec1.ID, 1, now.Add(-time.Hour))
-	mustCreateLog(rec1.ID, 1, now.Add(-2*time.Hour))
-	mustCreateLog(rec2.ID, 1, now.Add(-time.Hour))
-	// 周期外的记录不应计入。
-	mustCreateLog(oldRec.ID, 1, now.Add(-10*24*time.Hour))
-	// user 2：rec1、rec3 各算 1，共 2。
-	mustCreateLog(rec1.ID, 2, now.Add(-time.Hour))
-	mustCreateLog(rec3.ID, 2, now.Add(-time.Hour))
-	// user 3 没有 user_stats 行，也应计入：排行榜不依赖 user_stats。
-	mustCreateLog(rec3.ID, 3, now.Add(-time.Hour))
-	// 其他群不应计入。
-	mustCreateLog(otherChatRec.ID, 1, now.Add(-time.Hour))
+	// user 1：rec1 首次出现不计，之后重复 2 次；rec2 首次出现不计，之后重复 1 次。
+	mustCreateLog(rec1.ID, 1, 10, now.Add(-time.Hour))
+	mustCreateLog(rec1.ID, 1, 11, now.Add(-time.Hour))
+	mustCreateLog(rec1.ID, 1, 12, now.Add(-2*time.Hour))
+	mustCreateLog(rec2.ID, 1, 20, now.Add(-time.Hour))
+	mustCreateLog(rec2.ID, 1, 21, now.Add(-time.Hour))
+	// 周期外的重复不应计入本周。
+	mustCreateLog(oldRec.ID, 1, 40, now.Add(-10*24*time.Hour))
+	mustCreateLog(oldRec.ID, 1, 41, now.Add(-10*24*time.Hour))
+	// user 2：rec2 的重复 1 次。
+	mustCreateLog(rec2.ID, 2, 22, now.Add(-time.Hour))
+	// user 3 只有首次出现：不应上榜，也不需要 user_stats 行。
+	mustCreateLog(rec3.ID, 3, 30, now.Add(-time.Hour))
+	// 其他群的重复不应计入。
+	mustCreateLog(otherChatRec.ID, 1, 50, now.Add(-time.Hour))
+	mustCreateLog(otherChatRec.ID, 1, 51, now.Add(-time.Hour))
 
 	stats, err := r.GetTopRescuers(chatID, since, 10)
 	if err != nil {
 		t.Fatalf("GetTopRescuers() error = %v", err)
 	}
-	if len(stats) != 3 {
-		t.Fatalf("stats = %+v, want 3 users", stats)
+	if len(stats) != 2 {
+		t.Fatalf("stats = %+v, want 2 users", stats)
 	}
-	// 同分时按 user_id 升序。
 	if stats[0].UserID != 1 || stats[0].RescueCount != 3 {
-		t.Errorf("first = %+v, want user 1 with 3 occurrences", stats[0])
+		t.Errorf("first = %+v, want user 1 with 3 repeat occurrences", stats[0])
 	}
-	if stats[1].UserID != 2 || stats[1].RescueCount != 2 {
-		t.Errorf("second = %+v, want user 2 with 2 occurrences", stats[1])
-	}
-	if stats[2].UserID != 3 || stats[2].RescueCount != 1 {
-		t.Errorf("third = %+v, want user 3 with 1 occurrence", stats[2])
+	if stats[1].UserID != 2 || stats[1].RescueCount != 1 {
+		t.Errorf("second = %+v, want user 2 with 1 repeat occurrence", stats[1])
 	}
 	for _, s := range stats {
 		if s.Username != "" || s.FirstName != "" {
@@ -265,8 +264,8 @@ func TestGetTopRescuersCountsEveryOccurrence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetTopRescuers(all) error = %v", err)
 	}
-	if len(allStats) != 3 || allStats[0].UserID != 1 || allStats[0].RescueCount != 4 {
-		t.Errorf("all-time stats = %+v, want user 1 with 4 occurrences", allStats)
+	if len(allStats) != 2 || allStats[0].UserID != 1 || allStats[0].RescueCount != 4 {
+		t.Errorf("all-time stats = %+v, want user 1 with 4 repeat occurrences", allStats)
 	}
 }
 
@@ -285,10 +284,13 @@ func TestCountUserOccurrencesAndLastOccurrence(t *testing.T) {
 	}
 
 	for _, log := range []models.ForwardLog{
+		// 首次出现：即使仍在统计窗口内也不计入火星次数。
 		{RecordID: rec.ID, SenderID: 7, TargetMsgID: 1, CreatedAt: now.Add(-10 * 24 * time.Hour)},
 		{RecordID: rec.ID, SenderID: 7, TargetMsgID: 2, CreatedAt: now.Add(-2 * time.Hour)},
 		{RecordID: rec.ID, SenderID: 7, TargetMsgID: 3, CreatedAt: now.Add(-30 * time.Minute)},
+		// 其他发送者的重复不计入 user 7。
 		{RecordID: rec.ID, SenderID: 8, TargetMsgID: 4, CreatedAt: now.Add(-time.Hour)},
+		// 其他群的记录不计入。
 		{RecordID: otherChatRec.ID, SenderID: 7, TargetMsgID: 5, CreatedAt: now.Add(-time.Hour)},
 	} {
 		if err := r.db.Create(&log).Error; err != nil {
@@ -308,16 +310,16 @@ func TestCountUserOccurrencesAndLastOccurrence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CountUserOccurrences(month) error = %v", err)
 	}
-	if monthCount != 3 {
-		t.Errorf("month count = %d, want 3", monthCount)
+	if monthCount != 2 {
+		t.Errorf("month count = %d, want 2 (first occurrence excluded)", monthCount)
 	}
 
 	totalCount, err := r.CountUserOccurrences(chatID, 7, time.Time{})
 	if err != nil {
 		t.Fatalf("CountUserOccurrences(all) error = %v", err)
 	}
-	if totalCount != 3 {
-		t.Errorf("total count = %d, want 3", totalCount)
+	if totalCount != 2 {
+		t.Errorf("total count = %d, want 2 (first occurrence excluded)", totalCount)
 	}
 
 	last, has, err := r.LastUserOccurrence(chatID, 7)
@@ -344,5 +346,48 @@ func TestCountUserOccurrencesAndLastOccurrence(t *testing.T) {
 	}
 	if has {
 		t.Error("LastUserOccurrence(none) has = true, want false")
+	}
+}
+
+func TestRankTimeWindowUsesAbsoluteTime(t *testing.T) {
+	r := setupRepo(t)
+	const chatID = int64(-100)
+	const userID = int64(7)
+
+	// STATS_TZ=Asia/Shanghai 的周一 00:00 等于 UTC 周日 16:00。
+	loc := time.FixedZone("CST", 8*60*60)
+	since := time.Date(2026, 11, 2, 0, 0, 0, 0, loc)
+
+	rec := &models.ForwardRecord{ChatID: chatID, ContentKey: "tz", FirstTargetMsgID: 1}
+	if err := r.db.Create(rec).Error; err != nil {
+		t.Fatalf("create record: %v", err)
+	}
+	for _, log := range []models.ForwardLog{
+		// 首次出现，不计入。
+		{RecordID: rec.ID, SenderID: userID, TargetMsgID: 1, CreatedAt: time.Date(2026, 11, 1, 15, 0, 0, 0, time.UTC)},
+		// 本地周一 00:30（UTC 周日 16:30）：在窗口内。
+		{RecordID: rec.ID, SenderID: userID, TargetMsgID: 2, CreatedAt: time.Date(2026, 11, 1, 16, 30, 0, 0, time.UTC)},
+		// 本地周日 23:30（UTC 周日 15:30）：在窗口外。
+		{RecordID: rec.ID, SenderID: userID, TargetMsgID: 3, CreatedAt: time.Date(2026, 11, 1, 15, 30, 0, 0, time.UTC)},
+	} {
+		if err := r.db.Create(&log).Error; err != nil {
+			t.Fatalf("create log: %v", err)
+		}
+	}
+
+	count, err := r.CountUserOccurrences(chatID, userID, since)
+	if err != nil {
+		t.Fatalf("CountUserOccurrences() error = %v", err)
+	}
+	if count != 1 {
+		t.Errorf("window count = %d, want 1", count)
+	}
+
+	stats, err := r.GetTopRescuers(chatID, since, 10)
+	if err != nil {
+		t.Fatalf("GetTopRescuers() error = %v", err)
+	}
+	if len(stats) != 1 || stats[0].UserID != userID || stats[0].RescueCount != 1 {
+		t.Errorf("leaderboard = %+v, want user 7 with 1 repeat occurrence", stats)
 	}
 }

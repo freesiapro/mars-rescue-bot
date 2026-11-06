@@ -26,7 +26,8 @@ const textContentKeyPrefix = "text:v2:"
 
 // Processor 处理群内重复内容检测与回复。
 // 配对规则：同一 (群, 内容键) 的出现按顺序两两配对。第 1、3、5… 次只记录，
-// 第 2、4、6… 次与上一次组成一对并发送火星提醒；每次出现都照常计入统计。
+// 第 2、4、6… 次与上一次组成一对并发送火星提醒；每次出现都写流水，
+// 排行榜只统计除首次之外的重复出现。
 // 同一波连续刷屏（消息 ID 相差不超过 AdjacentRepeatGap）只计数，不提醒，
 // 也不消耗配对位置。
 type Processor struct {
@@ -455,7 +456,7 @@ func FormatRankList(stats []models.UserStats, chat *telebot.Chat, chatTitle, per
 	return sb.String()
 }
 
-// FormatUserStats 展示某用户在本群的本周、本月、累计出现次数与最近一次时间。
+// FormatUserStats 展示某用户在本群的本周、本月、累计重复出现次数与最近一次时间。
 func FormatUserStats(weekCount, monthCount, totalCount int64, last time.Time, loc *time.Location) string {
 	if totalCount == 0 {
 		return "📊 你在本群还没有火星记录。"

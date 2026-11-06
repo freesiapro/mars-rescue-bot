@@ -31,6 +31,7 @@ func (ForwardRecord) TableName() string {
 }
 
 // ForwardLog 记录每次具体的转发/发送行为（用于排行榜和复读检测）。
+// 排行榜只统计重复出现，会排除每条记录的第一条流水（首次出现）。
 type ForwardLog struct {
 	ID          uint64    `gorm:"primaryKey"`
 	RecordID    uint64    `gorm:"notNull;index;index:idx_record_sender"`
