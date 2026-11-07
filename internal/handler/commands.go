@@ -72,26 +72,22 @@ func (h *CommandHandler) handleStart(c telebot.Context) error {
 		"user_id", sender.ID,
 	)
 	return c.Reply(
-		"🚀 火星救援 Bot 已上线！\n\n" +
-			"我会默默观察群聊中的重复内容。\n" +
-			"转发也参与：频道转发按原帖识别，其他转发按文本或媒体内容去重。\n" +
-			"同一字符刷屏（哈哈哈哈、666666）不记录。\n" +
-			"同一内容按出现顺序两两配对（文本忽略标点、大小写）：再次出现时提醒，并和上一次抵消；下一次出现重新开一对。\n" +
-			"同一内容连续刷屏（消息 ID 相差 ≤5）只计数，不提醒。\n" +
-			"配对只影响提醒；排行榜只统计重复出现，第一次出现不计入。\n\n" +
-			"命令:\n" +
-			"/hyw - 回复一条消息，查它有没有被火星小本本记上（只读）\n" +
-			"/mars_rank [week|month|all] - 查看本周/本月/总火星指数榜\n" +
-			"/mars_me - 查看自己的火星指数\n" +
-			"/mars_privacy - 查看隐私与数据说明\n" +
-			"/mars_status - 查看本群设置（管理员）\n" +
-			"/mars_off - 关闭本群检测（管理员）\n" +
-			"/mars_on - 开启本群检测（管理员）\n" +
-			"/mars_cooldown [秒数] - 设置回复冷却（管理员）\n" +
-			"/mars_mention on|off - 设置是否 @ 人（管理员）\n" +
-			"/mars_ignore - 忽略某人的重复内容（管理员）\n" +
-			"/mars_unignore - 取消忽略（管理员）\n" +
-			"/mars_ignore_list - 查看忽略名单（管理员）",
+		"火星救援。\n\n" +
+			"同样的话、图、文件，或者同一条频道转发再出现时，我会提一句。通常隔一次提一次；挨得很近的连刷只计数，不提醒。设了提醒间隔的话，间隔之内也不会再提。\n" +
+			"第一次出现只记下，不算火星次数。哈哈哈哈、666666 这种同一个字刷出来的，不记。\n" +
+			"文字会忽略大小写和标点。转发也算：频道转发认原帖，别的转发认文字，或图片、视频、文件本身。\n\n" +
+			"/hyw - 回复一条消息，看看有没有记下（只查，不改）\n" +
+			"/mars_rank - 本群火星次数。后面可以加 week、month 或 all，默认本周\n" +
+			"/mars_me - 看自己的火星次数\n" +
+			"/mars_privacy - 看这个机器人存了什么\n" +
+			"/mars_status - 看本群开关（管理员）\n" +
+			"/mars_off - 关掉本群检测（管理员）\n" +
+			"/mars_on - 打开本群检测（管理员）\n" +
+			"/mars_cooldown - 设置两次提醒最少隔几秒，0 到 86400，0 表示不间隔（管理员）\n" +
+			"/mars_mention - 写 on 或 off，提醒里要不要 @ 人（管理员）\n" +
+			"/mars_ignore - 忽略某人之后的重复内容。回复对方，或写数字 ID（管理员）\n" +
+			"/mars_unignore - 取消忽略。回复对方，或写数字 ID（管理员）\n" +
+			"/mars_ignore_list - 看忽略名单（管理员）",
 	)
 }
 
@@ -133,7 +129,7 @@ func (h *CommandHandler) handleRank(c telebot.Context) error {
 			"trace_id", traceID,
 			"user_id", msg.Sender.ID,
 		)
-		return c.Reply("请在群聊中使用此命令。")
+		return c.Reply("这个命令要在群里用。")
 	}
 
 	chatTitle := msg.Chat.Title
@@ -151,7 +147,7 @@ func (h *CommandHandler) handleRank(c telebot.Context) error {
 			"chat_id", msg.Chat.ID,
 			"error", err.Error(),
 		)
-		return c.Reply("获取排行榜失败，请稍后重试。")
+		return c.Reply("榜单没取到，请稍后再试。")
 	}
 
 	text := bot.FormatRankList(stats, msg.Chat, chatTitle, period.label(), h.names)
@@ -166,7 +162,7 @@ func (h *CommandHandler) handleMe(c telebot.Context) error {
 		return nil
 	}
 	if msg.Chat.Type == telebot.ChatPrivate {
-		return c.Reply("请在群聊中使用此命令。")
+		return c.Reply("这个命令要在群里用。")
 	}
 
 	slog.Info("处理 /mars_me 命令",
@@ -178,19 +174,19 @@ func (h *CommandHandler) handleMe(c telebot.Context) error {
 	now := h.now()
 	weekCount, err := h.repo.CountUserOccurrences(msg.Chat.ID, msg.Sender.ID, weekStart(now, h.statsLoc))
 	if err != nil {
-		return h.commandError(c, "读取本周火星指数失败", err)
+		return h.commandError(c, "本周次数没读出来", err)
 	}
 	monthCount, err := h.repo.CountUserOccurrences(msg.Chat.ID, msg.Sender.ID, monthStart(now, h.statsLoc))
 	if err != nil {
-		return h.commandError(c, "读取本月火星指数失败", err)
+		return h.commandError(c, "本月次数没读出来", err)
 	}
 	totalCount, err := h.repo.CountUserOccurrences(msg.Chat.ID, msg.Sender.ID, time.Time{})
 	if err != nil {
-		return h.commandError(c, "读取累计火星指数失败", err)
+		return h.commandError(c, "累计次数没读出来", err)
 	}
 	last, _, err := h.repo.LastUserOccurrence(msg.Chat.ID, msg.Sender.ID)
 	if err != nil {
-		return h.commandError(c, "读取最近一次火星记录失败", err)
+		return h.commandError(c, "最近一次记录没读出来", err)
 	}
 
 	return c.Reply(bot.FormatUserStats(weekCount, monthCount, totalCount, last, h.statsLoc), telebot.ModeHTML)
@@ -204,9 +200,9 @@ func (h *CommandHandler) handleOff(c telebot.Context) error {
 		return nil
 	}
 	if err := h.repo.SetChatEnabled(msg.Chat.ID, false, msg.Sender.ID); err != nil {
-		return h.commandError(c, "关闭本群检测失败", err)
+		return h.commandError(c, "没能关掉本群检测", err)
 	}
-	return c.Reply("已关闭本群的重复检测：不记录，也不回复。使用 /mars_on 重新开启。")
+	return c.Reply("本群检测已关掉：不再记录，也不提醒。用 /mars_on 可以重新打开。")
 }
 
 func (h *CommandHandler) handleOn(c telebot.Context) error {
@@ -215,9 +211,9 @@ func (h *CommandHandler) handleOn(c telebot.Context) error {
 		return nil
 	}
 	if err := h.repo.SetChatEnabled(msg.Chat.ID, true, msg.Sender.ID); err != nil {
-		return h.commandError(c, "开启本群检测失败", err)
+		return h.commandError(c, "没能打开本群检测", err)
 	}
-	return c.Reply("已开启本群的重复检测。")
+	return c.Reply("本群检测已打开。")
 }
 
 func (h *CommandHandler) handleStatus(c telebot.Context) error {
@@ -227,11 +223,11 @@ func (h *CommandHandler) handleStatus(c telebot.Context) error {
 	}
 	settings, err := h.repo.GetChatSettings(msg.Chat.ID)
 	if err != nil {
-		return h.commandError(c, "读取本群设置失败", err)
+		return h.commandError(c, "本群设置没读出来", err)
 	}
 	ignoredCount, err := h.repo.CountIgnoredUsers(msg.Chat.ID)
 	if err != nil {
-		return h.commandError(c, "读取忽略名单失败", err)
+		return h.commandError(c, "忽略名单没读出来", err)
 	}
 	return c.Reply(formatStatus(settings, ignoredCount), telebot.ModeHTML)
 }
@@ -247,12 +243,12 @@ func (h *CommandHandler) handleIgnore(c telebot.Context) error {
 	}
 	added, err := h.repo.AddIgnoredUser(msg.Chat.ID, target, msg.Sender.ID)
 	if err != nil {
-		return h.commandError(c, "添加忽略名单失败", err)
+		return h.commandError(c, "没能加入忽略名单", err)
 	}
 	if !added {
-		return c.Reply(fmt.Sprintf("用户 %d 已经在忽略名单中。", target))
+		return c.Reply(fmt.Sprintf("这个人已经在忽略名单里了（ID %d）。", target))
 	}
-	return c.Reply(fmt.Sprintf("已忽略用户 %d 的重复内容。", target))
+	return c.Reply(fmt.Sprintf("已忽略这个人之后的重复内容（ID %d）。", target))
 }
 
 func (h *CommandHandler) handleUnignore(c telebot.Context) error {
@@ -266,12 +262,12 @@ func (h *CommandHandler) handleUnignore(c telebot.Context) error {
 	}
 	removed, err := h.repo.RemoveIgnoredUser(msg.Chat.ID, target)
 	if err != nil {
-		return h.commandError(c, "移除忽略名单失败", err)
+		return h.commandError(c, "没能移出忽略名单", err)
 	}
 	if !removed {
-		return c.Reply(fmt.Sprintf("用户 %d 不在忽略名单中。", target))
+		return c.Reply(fmt.Sprintf("忽略名单里没有这个人（ID %d）。", target))
 	}
-	return c.Reply(fmt.Sprintf("已取消忽略用户 %d。", target))
+	return c.Reply(fmt.Sprintf("已取消忽略（ID %d）。", target))
 }
 
 func (h *CommandHandler) handleIgnoreList(c telebot.Context) error {
@@ -281,7 +277,7 @@ func (h *CommandHandler) handleIgnoreList(c telebot.Context) error {
 	}
 	ignored, err := h.repo.ListIgnoredUsers(msg.Chat.ID)
 	if err != nil {
-		return h.commandError(c, "读取忽略名单失败", err)
+		return h.commandError(c, "忽略名单没读出来", err)
 	}
 	return c.Reply(formatIgnoreList(ignored), telebot.ModeHTML)
 }
@@ -296,12 +292,12 @@ func (h *CommandHandler) handleCooldown(c telebot.Context) error {
 		return c.Reply(err.Error(), telebot.ModeHTML)
 	}
 	if err := h.repo.SetChatCooldown(msg.Chat.ID, seconds, msg.Sender.ID); err != nil {
-		return h.commandError(c, "设置冷却失败", err)
+		return h.commandError(c, "没能设置提醒间隔", err)
 	}
 	if seconds == 0 {
-		return c.Reply("已关闭回复冷却：每次配对提醒都会立即发送。")
+		return c.Reply("提醒间隔已取消。到了该提醒的时候会马上发。")
 	}
-	return c.Reply(fmt.Sprintf("已将回复冷却设置为 %d 秒。", seconds))
+	return c.Reply(fmt.Sprintf("两次提醒至少间隔 %d 秒。", seconds))
 }
 
 func (h *CommandHandler) handleMention(c telebot.Context) error {
@@ -314,12 +310,12 @@ func (h *CommandHandler) handleMention(c telebot.Context) error {
 		return c.Reply(err.Error(), telebot.ModeHTML)
 	}
 	if err := h.repo.SetChatMention(msg.Chat.ID, enabled, msg.Sender.ID); err != nil {
-		return h.commandError(c, "设置 @ 提醒失败", err)
+		return h.commandError(c, "没能设置 @ 提醒", err)
 	}
 	if enabled {
-		return c.Reply("已开启回复中的 @ 提醒。")
+		return c.Reply("提醒里会 @ 重复发送的人。")
 	}
-	return c.Reply("已关闭回复中的 @ 提醒。")
+	return c.Reply("提醒里不再 @ 人。")
 }
 
 // authorize 校验群聊与管理员身份。失败时已回复用户，返回 ok=false。
@@ -329,11 +325,11 @@ func (h *CommandHandler) authorize(c telebot.Context) (*telebot.Message, bool) {
 		return nil, false
 	}
 	if msg.Chat.Type == telebot.ChatPrivate {
-		_ = c.Reply("请在群聊中使用此命令。")
+		_ = c.Reply("这个命令要在群里用。")
 		return nil, false
 	}
 	if msg.Sender == nil {
-		_ = c.Reply("无法确认你的身份。")
+		_ = c.Reply("没认出是谁发的，这条先不处理。")
 		return nil, false
 	}
 
@@ -345,11 +341,11 @@ func (h *CommandHandler) authorize(c telebot.Context) (*telebot.Message, bool) {
 			"user_id", msg.Sender.ID,
 			"error", err.Error(),
 		)
-		_ = c.Reply("无法确认管理员身份，请稍后重试。")
+		_ = c.Reply("暂时没能确认你是不是管理员，请稍后再试。")
 		return nil, false
 	}
 	if !ok {
-		_ = c.Reply("仅群管理员可使用此命令。")
+		_ = c.Reply("只有群主或管理员能用这个命令。")
 		return nil, false
 	}
 	return msg, true
@@ -364,26 +360,30 @@ func (h *CommandHandler) commandError(c telebot.Context, action string, err erro
 }
 
 func formatStatus(settings *models.ChatSettings, ignoredCount int64) string {
-	state := "已开启"
+	state := "开着"
 	if !settings.Enabled {
-		state = "已关闭"
+		state = "关着"
 	}
-	mention := "开启"
+	mention := "会"
 	if !settings.MentionEnabled {
-		mention = "关闭"
+		mention = "不会"
+	}
+	cooldown := fmt.Sprintf("%d 秒", settings.CooldownSeconds)
+	if settings.CooldownSeconds == 0 {
+		cooldown = "0 秒（不间隔）"
 	}
 	var sb strings.Builder
-	sb.WriteString("⚙️ <b>火星救援设置</b>\n")
-	sb.WriteString(fmt.Sprintf("状态：%s\n", state))
-	sb.WriteString(fmt.Sprintf("回复冷却：%d 秒\n", settings.CooldownSeconds))
-	sb.WriteString(fmt.Sprintf("@提醒：%s\n", mention))
+	sb.WriteString("<b>本群设置</b>\n")
+	sb.WriteString(fmt.Sprintf("检测：%s\n", state))
+	sb.WriteString(fmt.Sprintf("提醒间隔：%s\n", cooldown))
+	sb.WriteString(fmt.Sprintf("提醒里 @ 人：%s\n", mention))
 	sb.WriteString(fmt.Sprintf("忽略名单：%d 人", ignoredCount))
 	return sb.String()
 }
 
 func formatIgnoreList(ignored []models.ChatIgnoredUser) string {
 	if len(ignored) == 0 {
-		return "本群忽略名单为空。"
+		return "忽略名单是空的。"
 	}
 
 	shown := ignored
@@ -392,12 +392,12 @@ func formatIgnoreList(ignored []models.ChatIgnoredUser) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("🙈 <b>本群忽略名单</b>（%d 人）\n\n", len(ignored)))
+	sb.WriteString(fmt.Sprintf("<b>忽略名单</b>（%d 人）\n\n", len(ignored)))
 	for i, item := range shown {
 		sb.WriteString(fmt.Sprintf("%d. <code>%d</code>\n", i+1, item.UserID))
 	}
 	if len(ignored) > len(shown) {
-		sb.WriteString(fmt.Sprintf("……仅展示前 %d 人\n", ignoreListLimit))
+		sb.WriteString(fmt.Sprintf("只列出前 %d 人。\n", ignoreListLimit))
 	}
 	return sb.String()
 }
