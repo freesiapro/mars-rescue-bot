@@ -30,7 +30,7 @@ func TestResolverObserveAndName(t *testing.T) {
 	}
 
 	now = now.Add(11 * time.Minute)
-	if got := r.Name(nil, 7); got != "群友 7" {
+	if got := r.Name(nil, 7); got != "用户 7" {
 		t.Errorf("Name() after expiry = %q, want fallback", got)
 	}
 }
@@ -68,14 +68,14 @@ func TestResolverFallsBackOnProviderError(t *testing.T) {
 	provider := &fakeProvider{err: errors.New("telegram unavailable")}
 	r := New(provider)
 
-	if got := r.Name(&telebot.Chat{ID: -100}, 7); got != "群友 7" {
+	if got := r.Name(&telebot.Chat{ID: -100}, 7); got != "用户 7" {
 		t.Errorf("Name() = %q, want fallback", got)
 	}
 }
 
 func TestResolverNilAndInvalidInputs(t *testing.T) {
 	var r *Resolver
-	if got := r.Name(nil, 7); got != "群友 7" {
+	if got := r.Name(nil, 7); got != "用户 7" {
 		t.Errorf("nil resolver Name() = %q, want fallback", got)
 	}
 	r.Observe(nil)

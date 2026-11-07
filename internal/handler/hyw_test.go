@@ -226,7 +226,7 @@ func TestHYWRecordedRealRichSample(t *testing.T) {
 
 	ctx, _ := runHYW(t, h, hywTestChatID, &target)
 	reply := assertHYWReplyToTarget(t, ctx, &target)
-	if !strings.Contains(reply, "记下了：文本 · 短码 ") {
+	if !strings.Contains(reply, "📒 已记录：文本 · 短码 ") {
 		t.Errorf("reply = %q, want rich sample deduped as text", reply)
 	}
 	content := bot.AnalyzeMessageContent(&target, hywTestSecret)
@@ -253,7 +253,7 @@ func TestHYWReplyToBotRichMessage(t *testing.T) {
 
 	ctx, _ := runHYW(t, h, hywTestChatID, &target)
 	reply := assertHYWReplyToTarget(t, ctx, &target)
-	if !strings.Contains(reply, "机器人发的") {
+	if !strings.Contains(reply, "机器人发送") {
 		t.Errorf("reply = %q, want bot explanation before content analysis", reply)
 	}
 	t.Logf("hyw bot rich reply: %s", reply)
@@ -265,10 +265,10 @@ func TestHYWNoContentIncludesPresentFields(t *testing.T) {
 
 	ctx, _ := runHYW(t, h, hywTestChatID, target)
 	reply := assertHYWReplyToTarget(t, ctx, target)
-	if !strings.Contains(reply, "没内容") {
+	if !strings.Contains(reply, "没有可记录") {
 		t.Errorf("reply = %q, want no-content explanation", reply)
 	}
-	for _, want := range []string{"看到这些部分：", "message_id", "chat", "from"} {
+	for _, want := range []string{"字段：", "message_id", "chat", "from"} {
 		if !strings.Contains(reply, want) {
 			t.Errorf("reply = %q, want containing %q", reply, want)
 		}
@@ -289,11 +289,11 @@ func TestHYWRecordedText(t *testing.T) {
 	ctx, _ := runHYW(t, h, hywTestChatID, second)
 	reply := assertHYWReplyToTarget(t, ctx, second)
 	for _, want := range []string{
-		"记下了：文本 · 短码 ",
-		"出现过 2 次",
+		"📒 已记录：文本 · 短码 ",
+		"出现 2 次",
 		"最早 ",
 		"最近 ",
-		"这次发出了提醒",
+		"本次已发出提醒",
 	} {
 		if !strings.Contains(reply, want) {
 			t.Errorf("reply = %q, want containing %q", reply, want)
@@ -323,9 +323,9 @@ func TestHYWRecordedPureLink(t *testing.T) {
 	ctx, _ := runHYW(t, h, hywTestChatID, second)
 	reply := assertHYWReplyToTarget(t, ctx, second)
 	for _, want := range []string{
-		"记下了：链接 · 短码 ",
-		"出现过 2 次",
-		"这次发出了提醒",
+		"📒 已记录：链接 · 短码 ",
+		"出现 2 次",
+		"本次已发出提醒",
 	} {
 		if !strings.Contains(reply, want) {
 			t.Errorf("reply = %q, want containing %q", reply, want)
@@ -362,9 +362,9 @@ func TestHYWRecordedRichMessage(t *testing.T) {
 	ctx, _ := runHYW(t, h, hywTestChatID, rich)
 	reply := assertHYWReplyToTarget(t, ctx, rich)
 	for _, want := range []string{
-		"记下了：文本 · 短码 ",
-		"出现过 2 次",
-		"这次发出了提醒",
+		"📒 已记录：文本 · 短码 ",
+		"出现 2 次",
+		"本次已发出提醒",
 	} {
 		if !strings.Contains(reply, want) {
 			t.Errorf("reply = %q, want containing %q", reply, want)
@@ -393,7 +393,7 @@ func TestHYWFirstOccurrenceDecision(t *testing.T) {
 
 	ctx, _ := runHYW(t, h, hywTestChatID, first)
 	reply := assertHYWReplyToTarget(t, ctx, first)
-	if !strings.Contains(reply, "第一次出现，只记下了，没有提醒") {
+	if !strings.Contains(reply, "第一次出现，已记录，未提醒") {
 		t.Errorf("reply = %q, want first-occurrence paired_silent", reply)
 	}
 }
@@ -407,7 +407,7 @@ func TestHYWAdjacentDecision(t *testing.T) {
 
 	ctx, _ := runHYW(t, h, hywTestChatID, second)
 	reply := assertHYWReplyToTarget(t, ctx, second)
-	if !strings.Contains(reply, "连着刷的，记了次数，没有提醒") {
+	if !strings.Contains(reply, "连续刷屏，未发送提醒") {
 		t.Errorf("reply = %q, want adjacent exemption", reply)
 	}
 	t.Logf("hyw adjacent reply: %s", reply)
@@ -423,10 +423,10 @@ func TestHYWRecordedMedia(t *testing.T) {
 
 	ctx, _ := runHYW(t, h, hywTestChatID, second)
 	reply := assertHYWReplyToTarget(t, ctx, second)
-	if !strings.Contains(reply, "记下了：图片 · 短码 ") {
+	if !strings.Contains(reply, "📒 已记录：图片 · 短码 ") {
 		t.Errorf("reply = %q, want photo key type", reply)
 	}
-	if !strings.Contains(reply, "出现过 2 次") {
+	if !strings.Contains(reply, "出现 2 次") {
 		t.Errorf("reply = %q, want cumulative count", reply)
 	}
 	for _, secret := range []string{uniqueID, "media:photo:" + uniqueID} {
@@ -447,7 +447,7 @@ func TestHYWRecordedChannelForward(t *testing.T) {
 
 	ctx, _ := runHYW(t, h, hywTestChatID, second)
 	reply := assertHYWReplyToTarget(t, ctx, second)
-	if !strings.Contains(reply, "记下了：频道转发 · 短码 ") {
+	if !strings.Contains(reply, "📒 已记录：频道转发 · 短码 ") {
 		t.Errorf("reply = %q, want channel-forward key type", reply)
 	}
 	for _, secret := range []string{"-100777", "channel:-100777:55"} {
@@ -512,7 +512,7 @@ func TestHYWNotRecorded(t *testing.T) {
 
 	ctx, _ := runHYW(t, h, hywTestChatID, target)
 	reply := assertHYWReplyToTarget(t, ctx, target)
-	if !strings.Contains(reply, "没有这条的记录") {
+	if !strings.Contains(reply, "没有这条记录") {
 		t.Errorf("reply = %q, want not-recorded copy", reply)
 	}
 	t.Logf("hyw not recorded reply: %s", reply)
@@ -540,7 +540,7 @@ func TestHYWReplyToBot(t *testing.T) {
 
 	ctx, _ := runHYW(t, h, hywTestChatID, target)
 	reply := assertHYWReplyToTarget(t, ctx, target)
-	if !strings.Contains(reply, "机器人发的") {
+	if !strings.Contains(reply, "机器人发送") {
 		t.Errorf("reply = %q, want bot explanation", reply)
 	}
 	t.Logf("hyw bot reply: %s", reply)
@@ -575,7 +575,7 @@ func TestHYWSkipReasons(t *testing.T) {
 				}
 				return msg
 			},
-			want: "只是在 @ 人",
+			want: "只有 @",
 		},
 		{
 			name: "mention only rich",
@@ -596,7 +596,7 @@ func TestHYWSkipReasons(t *testing.T) {
 				}
 				return msg
 			},
-			want: "只是在 @ 人",
+			want: "只有 @",
 		},
 		{
 			name: "mention only channel forward",
@@ -612,7 +612,7 @@ func TestHYWSkipReasons(t *testing.T) {
 				}
 				return msg
 			},
-			want: "只是在 @ 人",
+			want: "只有 @",
 		},
 		{
 			name: "command",
@@ -626,7 +626,7 @@ func TestHYWSkipReasons(t *testing.T) {
 			target: func() *telebot.Message {
 				return hywTextMessage(hywTestChatID, 1, "", 13)
 			},
-			want: "没内容",
+			want: "没有可记录",
 		},
 		{
 			name: "unsupported audio",
@@ -662,7 +662,7 @@ func TestHYWOnlyCurrentChat(t *testing.T) {
 	target := hywTextMessage(hywTestChatID, 1, "hyw other chat", 10)
 	ctx, _ := runHYW(t, h, hywTestChatID, target)
 	reply := assertHYWReplyToTarget(t, ctx, target)
-	if !strings.Contains(reply, "没有这条的记录") {
+	if !strings.Contains(reply, "没有这条记录") {
 		t.Errorf("reply = %q, want no cross-chat match", reply)
 	}
 }
@@ -755,10 +755,10 @@ func TestDeriveHYWDecisionRules(t *testing.T) {
 		PendingPair:         &pendingFalse,
 	}
 	logs := []models.ForwardLog{{TargetMsgID: 10}, {TargetMsgID: 16}}
-	if got := deriveHYWDecision(record, logs, 10); got != "第一次出现，只记下了，没有提醒" {
+	if got := deriveHYWDecision(record, logs, 10); got != "第一次出现，已记录，未提醒" {
 		t.Errorf("first occurrence = %q, want first-seen copy", got)
 	}
-	if got := deriveHYWDecision(record, logs, 16); got != "这次发出了提醒" {
+	if got := deriveHYWDecision(record, logs, 16); got != "本次已发出提醒" {
 		t.Errorf("latest successful alert = %q, want sent-alert copy", got)
 	}
 
@@ -766,7 +766,7 @@ func TestDeriveHYWDecisionRules(t *testing.T) {
 	record.ForwardCount = 3
 	record.PendingPair = &pendingTrue
 	logs = []models.ForwardLog{{TargetMsgID: 10}, {TargetMsgID: 16}, {TargetMsgID: 22}}
-	if got := deriveHYWDecision(record, logs, 16); !strings.Contains(got, "后面又出现过") {
+	if got := deriveHYWDecision(record, logs, 16); !strings.Contains(got, "后面还有记录") {
 		t.Errorf("non-latest = %q, want unknown", got)
 	}
 	if got := deriveHYWDecision(record, logs, 22); !strings.Contains(got, "没法确定") {
@@ -780,10 +780,10 @@ func TestDeriveHYWDecisionRules(t *testing.T) {
 		PendingPair:         &pendingTrue,
 	}
 	adjacentLogs := []models.ForwardLog{{TargetMsgID: 10}, {TargetMsgID: 15}}
-	if got := deriveHYWDecision(adjacentRecord, adjacentLogs, 15); got != "连着刷的，记了次数，没有提醒" {
+	if got := deriveHYWDecision(adjacentRecord, adjacentLogs, 15); got != "连续刷屏，未发送提醒" {
 		t.Errorf("adjacent = %q, want adjacent copy", got)
 	}
-	if got := deriveHYWDecision(adjacentRecord, nil, 15); !strings.Contains(got, "已经过了保留期") {
+	if got := deriveHYWDecision(adjacentRecord, nil, 15); !strings.Contains(got, "已超过保留期") {
 		t.Errorf("missing log = %q, want unknown", got)
 	}
 }

@@ -280,17 +280,17 @@ func (p *Processor) formatDuplicate(chat *telebot.Chat, event *duplicateEvent, m
 		who = formatMention(event.sender)
 	}
 
-	prefix := fmt.Sprintf("火星救援，%s：%s", who, event.subject())
+	prefix := fmt.Sprintf("🚨 火星救援！%s，%s", who, event.subject())
 
 	firstSenderID := event.record.FirstSenderID
 	if firstSenderID <= 0 {
-		return prefix + "之前就有人发过了"
+		return prefix + "群里早就有人发过了"
 	}
 
 	firstSeen := p.formatFirstSeen(event.record.CreatedAt)
 	linkHTML := ""
 	if link, ok := messageLink(chat, event.record.FirstTargetMsgID); ok {
-		linkHTML = fmt.Sprintf("<a href=\"%s\">看最早那条</a>", html.EscapeString(link))
+		linkHTML = fmt.Sprintf("<a href=\"%s\">回现场</a>", html.EscapeString(link))
 	}
 
 	var sb strings.Builder
@@ -300,7 +300,7 @@ func (p *Processor) formatDuplicate(chat *telebot.Chat, event *duplicateEvent, m
 	} else {
 		firstSender := p.names.Name(chat, firstSenderID)
 		if firstSender == "" {
-			firstSender = fmt.Sprintf("群友 %d", firstSenderID)
+			firstSender = fmt.Sprintf("用户 %d", firstSenderID)
 		}
 		sb.WriteString(" ")
 		sb.WriteString(html.EscapeString(firstSender))
@@ -311,7 +311,7 @@ func (p *Processor) formatDuplicate(chat *telebot.Chat, event *duplicateEvent, m
 	}
 	sb.WriteString(" 就发过了")
 	if linkHTML != "" {
-		sb.WriteString(" ")
+		sb.WriteString("，")
 		sb.WriteString(linkHTML)
 	}
 	return sb.String()
@@ -418,19 +418,27 @@ func FormatRankList(stats []models.UserStats, chat *telebot.Chat, chatTitle, per
 		periodLabel = "本周"
 	}
 	if len(stats) == 0 {
-		return fmt.Sprintf("%s还没有火星次数。同样的内容再出现一次才算。", periodLabel)
+		return fmt.Sprintf("📊 %s暂无火星次数", periodLabel)
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("<b>%s</b> 火星次数（%s）\n", html.EscapeString(chatTitle), periodLabel))
-	sb.WriteString("只算重复出现，第一次不算。\n\n")
+	sb.WriteString(fmt.Sprintf("🏆 <b>%s</b> 火星次数榜（%s）\n\n", html.EscapeString(chatTitle), periodLabel))
 	for i, s := range stats {
 		name := resolver.Name(chat, s.UserID)
 		if name == "" {
-			name = fmt.Sprintf("群友 %d", s.UserID)
+			name = fmt.Sprintf("用户 %d", s.UserID)
 		}
 		name = html.EscapeString(name)
-		sb.WriteString(fmt.Sprintf("%d. %s — %d 次\n", i+1, name, s.RescueCount))
+		medal := ""
+		switch i {
+		case 0:
+			medal = "🥇 "
+		case 1:
+			medal = "🥈 "
+		case 2:
+			medal = "🥉 "
+		}
+		sb.WriteString(fmt.Sprintf("%s%d. %s — %d 次\n", medal, i+1, name, s.RescueCount))
 	}
 	return sb.String()
 }
@@ -438,15 +446,15 @@ func FormatRankList(stats []models.UserStats, chat *telebot.Chat, chatTitle, per
 // FormatUserStats 展示某用户在本群的本周、本月、累计重复出现次数与最近一次时间。
 func FormatUserStats(weekCount, monthCount, totalCount int64, last time.Time, loc *time.Location) string {
 	if totalCount == 0 {
-		return "你在本群还没有火星次数。同样的内容再出现一次才算。"
+		return "📊 你在本群还没有火星次数。"
 	}
 	if loc == nil {
 		loc = time.UTC
 	}
-	lastText := "不清楚"
+	lastText := "未知"
 	if !last.IsZero() {
 		lastText = last.In(loc).Format("2006-01-02 15:04")
 	}
-	return fmt.Sprintf("<b>你的火星次数</b>\n本周：%d 次\n本月：%d 次\n累计：%d 次\n最近一次：%s\n只算重复出现，第一次不算。",
+	return fmt.Sprintf("📊 <b>你的火星次数</b>\n本周：%d 次\n本月：%d 次\n累计：%d 次\n最近一次：%s",
 		weekCount, monthCount, totalCount, html.EscapeString(lastText))
 }
