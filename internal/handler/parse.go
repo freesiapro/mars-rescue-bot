@@ -17,11 +17,11 @@ const (
 )
 
 var (
-	errCooldownUsage = errors.New("用法：/mars_cooldown [秒数]，范围 0-86400")
-	errCooldownRange = errors.New("冷却秒数需在 0 到 86400 之间")
-	errMentionUsage  = errors.New("用法：/mars_mention on|off")
-	errIgnoreUsage   = errors.New("请回复某个用户的消息，或提供用户 ID：/mars_ignore [user_id]")
-	errRankUsage     = errors.New("用法：/mars_rank [week|month|all]")
+	errCooldownUsage = errors.New("请带上秒数，例如 /mars_cooldown 30。范围是 0 到 86400，0 表示不间隔。")
+	errCooldownRange = errors.New("秒数要在 0 到 86400 之间。")
+	errMentionUsage  = errors.New("请写成 /mars_mention on 或 /mars_mention off。")
+	errIgnoreUsage   = errors.New("请回复那个人的消息，或在命令后面写上数字 ID。")
+	errRankUsage     = errors.New("可以写 /mars_rank、/mars_rank week、/mars_rank month 或 /mars_rank all。")
 )
 
 type rankPeriod string

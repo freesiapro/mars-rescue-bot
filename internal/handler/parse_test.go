@@ -228,7 +228,7 @@ func TestWeekStart(t *testing.T) {
 func TestFormatStatus(t *testing.T) {
 	settings := &models.ChatSettings{Enabled: true, CooldownSeconds: 30, MentionEnabled: false}
 	got := formatStatus(settings, 3)
-	for _, want := range []string{"已开启", "30 秒", "@提醒：关闭", "忽略名单：3 人"} {
+	for _, want := range []string{"检测：开着", "提醒间隔：30 秒", "提醒里 @ 人：不会", "忽略名单：3 人"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("formatStatus() = %q, want containing %q", got, want)
 		}
@@ -236,7 +236,7 @@ func TestFormatStatus(t *testing.T) {
 }
 
 func TestFormatIgnoreList(t *testing.T) {
-	if got := formatIgnoreList(nil); got != "本群忽略名单为空。" {
+	if got := formatIgnoreList(nil); got != "忽略名单是空的。" {
 		t.Errorf("empty list = %q", got)
 	}
 

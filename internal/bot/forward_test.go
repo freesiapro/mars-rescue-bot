@@ -71,7 +71,7 @@ func TestForwardedBotTextTwiceAlerts(t *testing.T) {
 			if len(rec.messages) != 1 {
 				t.Fatalf("replies = %#v, want 1", rec.messages)
 			}
-			if !strings.Contains(rec.messages[0], "🚨 火星救援！") {
+			if !strings.Contains(rec.messages[0], "火星救援，") {
 				t.Errorf("reply = %q, want duplicate alert", rec.messages[0])
 			}
 

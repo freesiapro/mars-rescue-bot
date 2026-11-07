@@ -21,7 +21,7 @@ type cacheEntry struct {
 }
 
 // Resolver 维护进程内姓名缓存，并在缓存未命中时通过 getChatMember 兜底。
-// 姓名不会写入数据库；查询失败时返回“用户 <id>”。
+// 姓名不会写入数据库；查询失败时返回“群友 <id>”。
 type Resolver struct {
 	mu       sync.RWMutex
 	cache    map[int64]cacheEntry
@@ -55,7 +55,7 @@ func (r *Resolver) Observe(user *telebot.User) {
 }
 
 // Name 返回 userID 的展示名。
-// 优先使用未过期的缓存，其次调用 getChatMember；都失败时返回“用户 <id>”。
+// 优先使用未过期的缓存，其次调用 getChatMember；都失败时返回“群友 <id>”。
 func (r *Resolver) Name(chat *telebot.Chat, userID int64) string {
 	if userID <= 0 {
 		return ""
@@ -97,5 +97,5 @@ func displayName(user *telebot.User) string {
 }
 
 func fallbackName(userID int64) string {
-	return fmt.Sprintf("用户 %d", userID)
+	return fmt.Sprintf("群友 %d", userID)
 }
