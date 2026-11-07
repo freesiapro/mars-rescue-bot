@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	hywUsage       = "先回复一条消息，再发 /hyw。"
-	hywPrivateHint = "到群里回复那条消息再用 /hyw，私聊查不到。"
-	hywLookupError = "查询失败了，请稍后再试。"
+	hywUsage       = "请先回复一条消息，再发送 /hyw。"
+	hywPrivateHint = "请在群聊中回复消息后使用 /hyw。"
+	hywLookupError = "查询失败，请稍后重试。"
 )
 
 // handleHYW 是只读查询：根据被回复消息重新计算内容键，再查当前群的记录。
@@ -39,7 +39,7 @@ func (h *CommandHandler) handleHYW(c telebot.Context) error {
 		return c.Reply(hywUsage)
 	}
 	if target.Sender != nil && target.Sender.IsBot {
-		return sendHYWReply(c, target, "这是机器人发的，没有记。")
+		return sendHYWReply(c, target, "📒 机器人发送的消息不记录。")
 	}
 
 	content := bot.AnalyzeMessageContent(target, h.dedupSecret)
@@ -52,7 +52,7 @@ func (h *CommandHandler) handleHYW(c telebot.Context) error {
 		return c.Reply(hywLookupError)
 	}
 	if !found {
-		return sendHYWReply(c, target, "没有这条的记录。可能是第一次出现，或者已经过了保留期。")
+		return sendHYWReply(c, target, "📒 没有这条记录。可能是第一次出现，或已超过保留期。")
 	}
 
 	logs, err := h.repo.ListRecordLogs(record.ID)
@@ -60,7 +60,7 @@ func (h *CommandHandler) handleHYW(c telebot.Context) error {
 		return c.Reply(hywLookupError)
 	}
 	if !hywTargetRecorded(record, logs, target.ID) {
-		return sendHYWReply(c, target, "有同样的内容，但这条本身没留下记录。可能当时没记上，或者已经过了保留期。")
+		return sendHYWReply(c, target, "📒 有相同内容的记录，但这条消息没有留下记录。可能当时未记录，或已超过保留期。")
 	}
 
 	return sendHYWReply(c, target, formatHYWLookup(record, logs, target, content, h.now(), h.statsLoc))
@@ -76,21 +76,21 @@ func sendHYWReply(c telebot.Context, target *telebot.Message, text string) error
 func hywSkipReason(decision string, presentFields []string) string {
 	switch decision {
 	case bot.DecisionBotIgnored:
-		return "这是机器人发的，没有记。"
+		return "📒 机器人发送的消息不记录。"
 	case bot.DecisionCommand:
-		return "这是命令，没有记。"
+		return "📒 命令不记录。"
 	case bot.DecisionMentionOnly:
-		return "这条只是在 @ 人，没有记。"
+		return "📒 只有 @ 的消息不记录。"
 	case bot.DecisionShortTextSkipped:
-		return "这条太短，或只是表情符号，没有记。"
+		return "📒 内容太短，或只有表情符号，不记录。"
 	case bot.DecisionRepeatedCharSkipped:
-		return "这条是同一个字刷出来的，没有记。"
+		return "📒 同一个字重复刷屏，不记录。"
 	case bot.DecisionNoContent:
-		return withPresentFields("这条没内容，记不下来。", presentFields)
+		return withPresentFields("📒 没有可记录的内容。", presentFields)
 	case bot.DecisionUnsupportedType:
-		return withPresentFields("这种消息不参与查重，没有记。", presentFields)
+		return withPresentFields("📒 这类消息不参与查重，未记录。", presentFields)
 	default:
-		return "这条不参与查重，没有记。"
+		return "📒 这条消息不参与查重，未记录。"
 	}
 }
 
@@ -100,7 +100,7 @@ func withPresentFields(base string, presentFields []string) string {
 	if len(presentFields) == 0 {
 		return base
 	}
-	return base + "\n看到这些部分：" + strings.Join(presentFields, ", ")
+	return base + "\n字段：" + strings.Join(presentFields, ", ")
 }
 
 func hywTargetRecorded(record *models.ForwardRecord, logs []models.ForwardLog, targetMsgID int) bool {
@@ -133,15 +133,15 @@ func formatHYWLookup(record *models.ForwardRecord, logs []models.ForwardLog, tar
 	first := bot.FormatShortTime(firstAt, now, loc)
 	latest := bot.FormatShortTime(latestAt, now, loc)
 	if first == "" {
-		first = "不清楚"
+		first = "未知"
 	}
 	if latest == "" {
-		latest = "不清楚"
+		latest = "未知"
 	}
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "记下了：%s · 短码 %s\n", content.KeyType, content.Hash)
-	fmt.Fprintf(&sb, "出现过 %d 次（含第一次） · 最早 %s · 最近 %s\n", record.ForwardCount, first, latest)
+	fmt.Fprintf(&sb, "📒 已记录：%s · 短码 %s\n", content.KeyType, content.Hash)
+	fmt.Fprintf(&sb, "出现 %d 次（含第一次） · 最早 %s · 最近 %s\n", record.ForwardCount, first, latest)
 	fmt.Fprintf(&sb, "%s", deriveHYWDecision(record, logs, target.ID))
 	return sb.String()
 }
@@ -153,7 +153,7 @@ func formatHYWLookup(record *models.ForwardRecord, logs []models.ForwardLog, tar
 //   - 冷却抑制、发送失败和后续配对会让中间消息的决策无法从流水唯一还原。
 func deriveHYWDecision(record *models.ForwardRecord, logs []models.ForwardLog, targetMsgID int) string {
 	if record.FirstTargetMsgID == targetMsgID {
-		return "第一次出现，只记下了，没有提醒"
+		return "第一次出现，已记录，未提醒"
 	}
 
 	index := -1
@@ -164,13 +164,13 @@ func deriveHYWDecision(record *models.ForwardRecord, logs []models.ForwardLog, t
 		}
 	}
 	if index < 0 {
-		return "没法确定：这条的记录已经过了保留期"
+		return "没法确定：这条记录已超过保留期"
 	}
 	if index == 0 {
-		return "没法确定：更早的记录已经过了保留期"
+		return "没法确定：更早的记录已超过保留期"
 	}
 	if delta := targetMsgID - logs[index-1].TargetMsgID; delta >= 0 && delta <= bot.AdjacentRepeatGap {
-		return "连着刷的，记了次数，没有提醒"
+		return "连续刷屏，未发送提醒"
 	}
 
 	isLatest := false
@@ -180,12 +180,12 @@ func deriveHYWDecision(record *models.ForwardRecord, logs []models.ForwardLog, t
 		isLatest = logs[len(logs)-1].TargetMsgID == targetMsgID
 	}
 	if !isLatest {
-		return "没法确定：后面又出现过，这次到底有没有提醒，记录里看不出来"
+		return "没法确定：后面还有记录，无法判断是否已提醒"
 	}
 	if hywEffectivePending(record) {
-		return "没法确定：可能只是记下了，也可能提醒被间隔挡住，或当时没发出去"
+		return "没法确定：可能仅作记录，也可能提醒被间隔拦住或发送失败"
 	}
-	return "这次发出了提醒"
+	return "本次已发出提醒"
 }
 
 func hywEffectivePending(record *models.ForwardRecord) bool {

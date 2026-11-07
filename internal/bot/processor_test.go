@@ -194,8 +194,8 @@ func TestProcessorReplyIncludesFirstSender(t *testing.T) {
 	}
 	reply := rec.messages[0]
 	for _, want := range []string{
-		`火星救援，<a href="tg://user?id=8">Bob</a>：这条 Alice `,
-		` 就发过了 <a href="https://t.me/c/1234567890/10">看最早那条</a>`,
+		`🚨 火星救援！<a href="tg://user?id=8">Bob</a>，这条 Alice `,
+		` 就发过了，<a href="https://t.me/c/1234567890/10">回现场</a>`,
 	} {
 		if !strings.Contains(reply, want) {
 			t.Errorf("reply = %q, want containing %q", reply, want)
@@ -232,7 +232,7 @@ func TestProcessorLegacyRecordShowsUnknownFirstSender(t *testing.T) {
 	if len(rec.messages) != 1 {
 		t.Fatalf("replies = %#v, want 1", rec.messages)
 	}
-	want := `火星救援，<a href="tg://user?id=8">Bob</a>：这条之前就有人发过了`
+	want := `🚨 火星救援！<a href="tg://user?id=8">Bob</a>，这条群里早就有人发过了`
 	if rec.messages[0] != want {
 		t.Errorf("reply = %q, want %q", rec.messages[0], want)
 	}
@@ -261,7 +261,7 @@ func TestProcessorBasicGroupReplyHasNoLink(t *testing.T) {
 
 	reply := rec.messages[0]
 	for _, want := range []string{
-		`火星救援，<a href="tg://user?id=2">Bob</a>：这条 Alice `,
+		`🚨 火星救援！<a href="tg://user?id=2">Bob</a>，这条 Alice `,
 		" 就发过了",
 	} {
 		if !strings.Contains(reply, want) {
@@ -269,7 +269,7 @@ func TestProcessorBasicGroupReplyHasNoLink(t *testing.T) {
 		}
 	}
 	assertAlertCopyOmissions(t, reply)
-	if strings.Contains(reply, "看最早那条") {
+	if strings.Contains(reply, "回现场") {
 		t.Errorf("reply = %q, want no link text in a basic group", reply)
 	}
 	if strings.Contains(reply, "https://t.me") {
@@ -288,7 +288,7 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 	previousDay := time.Date(2026, 11, 3, 12, 30, 0, 0, time.UTC)
 	publicChat := &telebot.Chat{ID: testChatID, Type: telebot.ChatSuperGroup, Username: "public_group"}
 	basicChat := &telebot.Chat{ID: -123456, Type: telebot.ChatGroup}
-	link := `<a href="https://t.me/public_group/10">看最早那条</a>`
+	link := `<a href="https://t.me/public_group/10">回现场</a>`
 	mentionBob := `<a href="tg://user?id=2">Bob</a>`
 
 	tests := []struct {
@@ -310,7 +310,7 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 				sender: &telebot.User{ID: 2, FirstName: "Bob"},
 			},
 			mention: true,
-			want:    "火星救援，" + mentionBob + "：这条 Alice 12:30 就发过了 " + link,
+			want:    "🚨 火星救援！" + mentionBob + "，这条 Alice 12:30 就发过了，" + link,
 		},
 		{
 			name: "text known sender with public link another day",
@@ -322,7 +322,7 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 				kind:   "text",
 				sender: &telebot.User{ID: 2, FirstName: "Bob"},
 			},
-			want: "火星救援，Bob：这条 Alice 11-03 12:30 就发过了 " + link,
+			want: "🚨 火星救援！Bob，这条 Alice 11-03 12:30 就发过了，" + link,
 		},
 		{
 			name: "text known sender without link",
@@ -334,7 +334,7 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 				kind:   "text",
 				sender: &telebot.User{ID: 2, FirstName: "Bob"},
 			},
-			want: "火星救援，Bob：这条 Alice 12:30 就发过了",
+			want: "🚨 火星救援！Bob，这条 Alice 12:30 就发过了",
 		},
 		{
 			name: "unknown first sender ignores time and link",
@@ -344,7 +344,7 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 				kind:   "text",
 				sender: &telebot.User{ID: 2, FirstName: "Bob"},
 			},
-			want: "火星救援，Bob：这条之前就有人发过了",
+			want: "🚨 火星救援！Bob，这条群里早就有人发过了",
 		},
 		{
 			name: "unknown first sender uses media noun",
@@ -355,7 +355,7 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 				mediaSubject: "这张图",
 				sender:       &telebot.User{ID: 2, FirstName: "Bob"},
 			},
-			want: "火星救援，Bob：这张图之前就有人发过了",
+			want: "🚨 火星救援！Bob，这张图群里早就有人发过了",
 		},
 		{
 			name: "self repeat text with link",
@@ -368,7 +368,7 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 				sender: &telebot.User{ID: 2, FirstName: "Bob"},
 			},
 			mention: true,
-			want:    "火星救援，" + mentionBob + "：这条你自己 12:30 就发过了 " + link,
+			want:    "🚨 火星救援！" + mentionBob + "，这条你自己 12:30 就发过了，" + link,
 		},
 		{
 			name: "self repeat text without link",
@@ -380,7 +380,7 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 				kind:   "text",
 				sender: &telebot.User{ID: 2, FirstName: "Bob"},
 			},
-			want: "火星救援，Bob：这条你自己 12:30 就发过了",
+			want: "🚨 火星救援！Bob，这条你自己 12:30 就发过了",
 		},
 		{
 			name: "self repeat uses media noun",
@@ -393,7 +393,7 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 				mediaSubject: "这段视频",
 				sender:       &telebot.User{ID: 2, FirstName: "Bob"},
 			},
-			want: "火星救援，Bob：这段视频你自己 12:30 就发过了 " + link,
+			want: "🚨 火星救援！Bob，这段视频你自己 12:30 就发过了，" + link,
 		},
 		{
 			name: "channel forward",
@@ -405,7 +405,7 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 				kind:   "channel",
 				sender: &telebot.User{ID: 2, FirstName: "Bob"},
 			},
-			want: "火星救援，Bob：这条转发 Alice 12:30 就发过了 " + link,
+			want: "🚨 火星救援！Bob，这条转发 Alice 12:30 就发过了，" + link,
 		},
 		{
 			name: "photo noun",
@@ -418,7 +418,7 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 				mediaSubject: "这张图",
 				sender:       &telebot.User{ID: 2, FirstName: "Bob"},
 			},
-			want: "火星救援，Bob：这张图 Alice 12:30 就发过了 " + link,
+			want: "🚨 火星救援！Bob，这张图 Alice 12:30 就发过了，" + link,
 		},
 		{
 			name: "video noun",
@@ -431,7 +431,7 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 				mediaSubject: "这段视频",
 				sender:       &telebot.User{ID: 2, FirstName: "Bob"},
 			},
-			want: "火星救援，Bob：这段视频 Alice 12:30 就发过了 " + link,
+			want: "🚨 火星救援！Bob，这段视频 Alice 12:30 就发过了，" + link,
 		},
 		{
 			name: "animation noun",
@@ -444,7 +444,7 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 				mediaSubject: "这个动图",
 				sender:       &telebot.User{ID: 2, FirstName: "Bob"},
 			},
-			want: "火星救援，Bob：这个动图 Alice 12:30 就发过了 " + link,
+			want: "🚨 火星救援！Bob，这个动图 Alice 12:30 就发过了，" + link,
 		},
 		{
 			name: "document noun",
@@ -457,7 +457,7 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 				mediaSubject: "这个文件",
 				sender:       &telebot.User{ID: 2, FirstName: "Bob"},
 			},
-			want: "火星救援，Bob：这个文件 Alice 12:30 就发过了 " + link,
+			want: "🚨 火星救援！Bob，这个文件 Alice 12:30 就发过了，" + link,
 		},
 		{
 			name: "mention disabled uses display name",
@@ -469,7 +469,7 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 				kind:   "text",
 				sender: &telebot.User{ID: 2, FirstName: "Bob"},
 			},
-			want: "火星救援，Bob：这条 Alice 12:30 就发过了 " + link,
+			want: "🚨 火星救援！Bob，这条 Alice 12:30 就发过了，" + link,
 		},
 		{
 			name: "unresolved first sender falls back to id",
@@ -481,7 +481,7 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 				kind:   "text",
 				sender: &telebot.User{ID: 2, FirstName: "Bob"},
 			},
-			want: "火星救援，Bob：这条 群友 9 12:30 就发过了 " + link,
+			want: "🚨 火星救援！Bob，这条 用户 9 12:30 就发过了，" + link,
 		},
 		{
 			name: "escapes first sender name",
@@ -493,7 +493,7 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 				kind:   "text",
 				sender: &telebot.User{ID: 2, FirstName: "Bob"},
 			},
-			want: "火星救援，Bob：这条 &lt;Eve&amp;Co&gt; 12:30 就发过了 " + link,
+			want: "🚨 火星救援！Bob，这条 &lt;Eve&amp;Co&gt; 12:30 就发过了，" + link,
 		},
 		{
 			name: "escapes alerted person name",
@@ -505,7 +505,7 @@ func TestFormatDuplicateCopyBranches(t *testing.T) {
 				kind:   "text",
 				sender: &telebot.User{ID: 2, FirstName: "<Bob&Co>"},
 			},
-			want: "火星救援，&lt;Bob&amp;Co&gt;：这条 Alice 12:30 就发过了 " + link,
+			want: "🚨 火星救援！&lt;Bob&amp;Co&gt;，这条 Alice 12:30 就发过了，" + link,
 		},
 	}
 
@@ -573,8 +573,8 @@ func TestProcessorSelfRepeatRepliesWithMention(t *testing.T) {
 	}
 	reply := rec.messages[0]
 	for _, want := range []string{
-		`火星救援，<a href="tg://user?id=7">&lt;A&amp;B&gt;</a>：这条你自己 `,
-		` 就发过了 <a href="https://t.me/c/1234567890/10">看最早那条</a>`,
+		`🚨 火星救援！<a href="tg://user?id=7">&lt;A&amp;B&gt;</a>，这条你自己 `,
+		` 就发过了，<a href="https://t.me/c/1234567890/10">回现场</a>`,
 	} {
 		if !strings.Contains(reply, want) {
 			t.Errorf("reply = %q, want containing %q", reply, want)
@@ -771,8 +771,8 @@ func TestProcessorChannelForwardDuplicate(t *testing.T) {
 		t.Fatalf("replies = %#v, want 1", rec.messages)
 	}
 	for _, want := range []string{
-		`火星救援，<a href="tg://user?id=8">B</a>：这条转发 A `,
-		` 就发过了 <a href="https://t.me/c/1234567890/10">看最早那条</a>`,
+		`🚨 火星救援！<a href="tg://user?id=8">B</a>，这条转发 A `,
+		` 就发过了，<a href="https://t.me/c/1234567890/10">回现场</a>`,
 	} {
 		if !strings.Contains(rec.messages[0], want) {
 			t.Errorf("reply = %q, want containing %q", rec.messages[0], want)
@@ -845,7 +845,7 @@ func TestProcessorPairingAlertsEverySecondOccurrence(t *testing.T) {
 	}
 
 	for i, alert := range rec.messages {
-		if !strings.Contains(alert, "火星救援，") || !strings.Contains(alert, " 就发过了") {
+		if !strings.Contains(alert, "🚨 火星救援！") || !strings.Contains(alert, " 就发过了") {
 			t.Errorf("alert %d = %q, want casual duplicate copy", i, alert)
 		}
 		assertAlertCopyOmissions(t, alert)
@@ -893,7 +893,7 @@ func TestAlertCountExceedsTwo(t *testing.T) {
 	}
 	for i, alert := range alertTexts {
 		assertAlertCopyOmissions(t, alert)
-		if !strings.Contains(alert, "火星救援，") || !strings.Contains(alert, " 就发过了") {
+		if !strings.Contains(alert, "🚨 火星救援！") || !strings.Contains(alert, " 就发过了") {
 			t.Errorf("alert %d = %q, want casual duplicate copy", i, alert)
 		}
 	}
@@ -1104,7 +1104,7 @@ func TestProcessorCooldownRevertAlertsOnNextOccurrence(t *testing.T) {
 	if len(rec.messages) != 2 {
 		t.Fatalf("replies after next occurrence = %#v, want 2", rec.messages)
 	}
-	if !strings.Contains(rec.messages[1], "火星救援，") || !strings.Contains(rec.messages[1], " 就发过了") {
+	if !strings.Contains(rec.messages[1], "🚨 火星救援！") || !strings.Contains(rec.messages[1], " 就发过了") {
 		t.Errorf("next alert = %q, want casual duplicate copy", rec.messages[1])
 	}
 	assertAlertCopyOmissions(t, rec.messages[1])
@@ -1619,7 +1619,7 @@ func TestFormatRankListResolvesNamesAtDisplayTime(t *testing.T) {
 	}
 
 	out := FormatRankList(stats, chat, "测试群", "本周", resolver)
-	for _, want := range []string{"Alice", "群友 2", "3 次", "2 次", "测试群"} {
+	for _, want := range []string{"Alice", "用户 2", "3 次", "2 次", "测试群"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("FormatRankList() = %q, want containing %q", out, want)
 		}
@@ -1632,7 +1632,7 @@ func TestFormatRankListResolvesNamesAtDisplayTime(t *testing.T) {
 func TestFormatRankListFallsBackWithoutResolver(t *testing.T) {
 	chat := &telebot.Chat{ID: testChatID, Type: telebot.ChatSuperGroup}
 	out := FormatRankList([]models.UserStats{{UserID: 9, RescueCount: 1}}, chat, "群", "本周", nil)
-	if !strings.Contains(out, "群友 9") {
+	if !strings.Contains(out, "用户 9") {
 		t.Errorf("FormatRankList() = %q, want fallback name", out)
 	}
 }
@@ -1653,7 +1653,7 @@ func TestFormatRankListEscapesResolvedNames(t *testing.T) {
 
 func TestFormatRankListEmpty(t *testing.T) {
 	out := FormatRankList(nil, &telebot.Chat{ID: testChatID}, "群", "本周", names.New(nil))
-	if !strings.Contains(out, "还没有火星次数") {
+	if !strings.Contains(out, "📊 本周暂无火星次数") {
 		t.Errorf("FormatRankList() = %q, want empty message", out)
 	}
 }
