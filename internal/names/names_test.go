@@ -85,3 +85,114 @@ func TestResolverNilAndInvalidInputs(t *testing.T) {
 		t.Errorf("Name(0) = %q, want empty", got)
 	}
 }
+
+func TestResolverInGroup(t *testing.T) {
+	chat := &telebot.Chat{ID: -100, Type: telebot.ChatSuperGroup}
+	other := &telebot.Chat{ID: -200, Type: telebot.ChatSuperGroup}
+
+	for _, tt := range []struct {
+		role telebot.MemberStatus
+		want bool
+	}{
+		{telebot.Creator, true},
+		{telebot.Administrator, true},
+		{telebot.Member, true},
+		{telebot.Restricted, true},
+		{telebot.Left, false},
+		{telebot.Kicked, false},
+		{"", false},
+	} {
+		t.Run(string(tt.role), func(t *testing.T) {
+			provider := &fakeProvider{member: &telebot.ChatMember{Role: tt.role}}
+			resolver := New(provider)
+			got, err := resolver.InGroup(chat, 7)
+			if err != nil {
+				t.Fatalf("InGroup() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("InGroup() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+
+	t.Run("cache is per chat and expires", func(t *testing.T) {
+		provider := &fakeProvider{member: &telebot.ChatMember{Role: telebot.Member}}
+		resolver := New(provider)
+		now := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+		resolver.now = func() time.Time { return now }
+
+		if _, err := resolver.InGroup(chat, 7); err != nil {
+			t.Fatalf("first InGroup() error = %v", err)
+		}
+		if _, err := resolver.InGroup(chat, 7); err != nil {
+			t.Fatalf("cached InGroup() error = %v", err)
+		}
+		if provider.calls != 1 {
+			t.Fatalf("calls = %d, want 1 while cache is fresh", provider.calls)
+		}
+		if _, err := resolver.InGroup(other, 7); err != nil {
+			t.Fatalf("other chat InGroup() error = %v", err)
+		}
+		if provider.calls != 2 {
+			t.Fatalf("calls = %d, want 2 for a different chat", provider.calls)
+		}
+		now = now.Add(defaultMemberCacheTTL + time.Second)
+		if _, err := resolver.InGroup(chat, 7); err != nil {
+			t.Fatalf("expired InGroup() error = %v", err)
+		}
+		if provider.calls != 3 {
+			t.Fatalf("calls = %d, want 3 after expiry", provider.calls)
+		}
+	})
+
+	t.Run("lookup error is not cached", func(t *testing.T) {
+		provider := &fakeProvider{err: errors.New("telegram down")}
+		resolver := New(provider)
+		if _, err := resolver.InGroup(chat, 7); err == nil {
+			t.Fatal("InGroup() error = nil, want lookup failure")
+		}
+		provider.err = nil
+		provider.member = &telebot.ChatMember{Role: telebot.Member}
+		got, err := resolver.InGroup(chat, 7)
+		if err != nil {
+			t.Fatalf("retry InGroup() error = %v", err)
+		}
+		if !got {
+			t.Fatal("retry InGroup() = false, want true")
+		}
+		if provider.calls != 2 {
+			t.Fatalf("calls = %d, want 2", provider.calls)
+		}
+	})
+
+	t.Run("nil member is not in group", func(t *testing.T) {
+		provider := &fakeProvider{}
+		resolver := New(provider)
+		got, err := resolver.InGroup(chat, 7)
+		if err != nil {
+			t.Fatalf("InGroup() error = %v", err)
+		}
+		if got {
+			t.Fatal("InGroup() = true, want false")
+		}
+		if _, err := resolver.InGroup(chat, 7); err != nil {
+			t.Fatalf("cached InGroup() error = %v", err)
+		}
+		if provider.calls != 1 {
+			t.Fatalf("calls = %d, want 1", provider.calls)
+		}
+	})
+
+	t.Run("unavailable", func(t *testing.T) {
+		if _, err := New(nil).InGroup(chat, 7); err == nil {
+			t.Fatal("nil provider error = nil")
+		}
+		var resolver *Resolver
+		if _, err := resolver.InGroup(chat, 7); err == nil {
+			t.Fatal("nil resolver error = nil")
+		}
+		if _, err := New(&fakeProvider{member: &telebot.ChatMember{Role: telebot.Member}}).InGroup(nil, 7); err == nil {
+			t.Fatal("nil chat error = nil")
+		}
+	})
+}

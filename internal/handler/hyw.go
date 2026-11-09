@@ -44,7 +44,7 @@ func (h *CommandHandler) handleHYW(c telebot.Context) error {
 		return sendHYWReply(c, target, "📒 机器人发送的消息不记录，也不会提醒。")
 	}
 
-	content := bot.AnalyzeMessageContent(target, h.dedupSecret)
+	content := bot.AnalyzeMessageContentWithMembership(target, h.dedupSecret, h.names)
 	if content.Key == "" {
 		return sendHYWReply(c, target, hywSkipReason(content.SkipDecision))
 	}
@@ -91,6 +91,8 @@ func hywSkipReason(decision string) string {
 		return "📒 这条没有可记录的内容。"
 	case bot.DecisionUnsupportedType:
 		return "📒 这类消息不会记录，也不会提醒。"
+	case bot.DecisionCitationSkipped:
+		return "📒 这条是转发或引用，不记录，也不会提醒。"
 	default:
 		return "📒 这条消息不会记录，也不会提醒。"
 	}

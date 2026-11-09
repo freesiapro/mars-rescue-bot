@@ -521,6 +521,71 @@ func TestHYWNoReply(t *testing.T) {
 	t.Logf("hyw usage reply: %s", ctx.replied[0].text)
 }
 
+type hywMemberProvider struct {
+	role  telebot.MemberStatus
+	calls int
+}
+
+func (p *hywMemberProvider) ChatMemberOf(telebot.Recipient, telebot.Recipient) (*telebot.ChatMember, error) {
+	p.calls++
+	return &telebot.ChatMember{Role: p.role}, nil
+}
+
+func TestHYWCitationSkippedUsesSameRule(t *testing.T) {
+	const want = "📒 这条是转发或引用，不记录，也不会提醒。"
+
+	t.Run("in-group forward", func(t *testing.T) {
+		h, _, _ := setupHYW(t)
+		provider := &hywMemberProvider{role: telebot.Member}
+		h.names = names.New(provider)
+		target := hywTextMessage(hywTestChatID, 8002, "hello mars bot", 10)
+		target.Origin = &telebot.MessageOrigin{
+			Type:   "user",
+			Sender: &telebot.User{ID: 8001, FirstName: "Author"},
+		}
+		ctx, _ := runHYW(t, h, hywTestChatID, target)
+		reply := assertHYWReplyToTarget(t, ctx, target)
+		if reply != want {
+			t.Errorf("reply = %q, want %q", reply, want)
+		}
+		if strings.Contains(reply, "已记录") || strings.Contains(reply, "没有这条内容的记录") {
+			t.Errorf("reply = %q, want the skip copy instead of a record lookup", reply)
+		}
+		if provider.calls != 1 {
+			t.Errorf("getChatMember calls = %d, want 1", provider.calls)
+		}
+	})
+
+	t.Run("reply pastes the same text", func(t *testing.T) {
+		h, _, _ := setupHYW(t)
+		original := hywTextMessage(hywTestChatID, 8001, "hello mars bot", 10)
+		target := hywTextMessage(hywTestChatID, 8002, "Hello, MARS bot", 11)
+		target.ReplyTo = original
+		target.Quote = &telebot.TextQuote{Text: "hello mars bot", Manual: true}
+		ctx, _ := runHYW(t, h, hywTestChatID, target)
+		reply := assertHYWReplyToTarget(t, ctx, target)
+		if reply != want {
+			t.Errorf("reply = %q, want %q", reply, want)
+		}
+	})
+
+	t.Run("quote with a new body is not a citation skip", func(t *testing.T) {
+		h, _, _ := setupHYW(t)
+		original := hywTextMessage(hywTestChatID, 8001, "hello mars bot", 10)
+		target := hywTextMessage(hywTestChatID, 8002, "a fresh comment here", 11)
+		target.ReplyTo = original
+		target.Quote = &telebot.TextQuote{Text: "hello mars bot", Manual: true}
+		ctx, _ := runHYW(t, h, hywTestChatID, target)
+		reply := assertHYWReplyToTarget(t, ctx, target)
+		if !strings.Contains(reply, "没有这条内容的记录") {
+			t.Errorf("reply = %q, want not-recorded copy", reply)
+		}
+		if strings.Contains(reply, "转发或引用") {
+			t.Errorf("reply = %q, quote alone should not skip", reply)
+		}
+	})
+}
+
 func TestHYWPrivateChat(t *testing.T) {
 	h, _, _ := setupHYW(t)
 	ctx := &fakeHYWContext{msg: &telebot.Message{

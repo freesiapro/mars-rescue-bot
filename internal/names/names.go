@@ -2,12 +2,19 @@
 package names
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"gopkg.in/telebot.v4"
 )
+
+// defaultMemberCacheTTL 是“原作者是否仍在本群”的内存缓存时间。
+// 只为少打 getChatMember；过期后重新查询。不写入数据库。
+const defaultMemberCacheTTL = time.Minute
+
+var errMemberLookup = errors.New("member lookup unavailable")
 
 // MemberProvider 抽象 Telegram 的群成员查询，便于测试。
 // *telebot.Bot 实现了该接口。
@@ -20,22 +27,37 @@ type cacheEntry struct {
 	expires time.Time
 }
 
+type memberCacheKey struct {
+	chatID int64
+	userID int64
+}
+
+type memberCacheEntry struct {
+	inGroup bool
+	expires time.Time
+}
+
 // Resolver 维护进程内姓名缓存，并在缓存未命中时通过 getChatMember 兜底。
 // 姓名不会写入数据库；查询失败时返回“用户 <id>”。
+// 成员是否仍在群内也走同一套查询，单独短时缓存，同样不落库。
 type Resolver struct {
-	mu       sync.RWMutex
-	cache    map[int64]cacheEntry
-	provider MemberProvider
-	ttl      time.Duration
-	now      func() time.Time
+	mu          sync.RWMutex
+	cache       map[int64]cacheEntry
+	memberCache map[memberCacheKey]memberCacheEntry
+	provider    MemberProvider
+	ttl         time.Duration
+	memberTTL   time.Duration
+	now         func() time.Time
 }
 
 func New(provider MemberProvider) *Resolver {
 	return &Resolver{
-		cache:    make(map[int64]cacheEntry),
-		provider: provider,
-		ttl:      10 * time.Minute,
-		now:      time.Now,
+		cache:       make(map[int64]cacheEntry),
+		memberCache: make(map[memberCacheKey]memberCacheEntry),
+		provider:    provider,
+		ttl:         10 * time.Minute,
+		memberTTL:   defaultMemberCacheTTL,
+		now:         time.Now,
 	}
 }
 
@@ -98,4 +120,42 @@ func displayName(user *telebot.User) string {
 
 func fallbackName(userID int64) string {
 	return fmt.Sprintf("用户 %d", userID)
+}
+
+// InGroup 报告 userID 现在是否还在 chat 里。
+// creator、administrator、member、restricted 视为仍在群内。
+// left、kicked、其他状态，以及查询失败，都返回“无法确认在群内”：
+// 调用方应据此不跳过转发。成功结果缓存 memberTTL；失败不缓存，下次重试。
+func (r *Resolver) InGroup(chat *telebot.Chat, userID int64) (bool, error) {
+	if r == nil || r.provider == nil || chat == nil || userID <= 0 {
+		return false, errMemberLookup
+	}
+
+	key := memberCacheKey{chatID: chat.ID, userID: userID}
+	r.mu.RLock()
+	entry, ok := r.memberCache[key]
+	r.mu.RUnlock()
+	if ok && r.now().Before(entry.expires) {
+		return entry.inGroup, nil
+	}
+
+	member, err := r.provider.ChatMemberOf(chat, &telebot.User{ID: userID})
+	if err != nil {
+		return false, err
+	}
+	inGroup := member != nil && memberInGroup(member.Role)
+
+	r.mu.Lock()
+	r.memberCache[key] = memberCacheEntry{inGroup: inGroup, expires: r.now().Add(r.memberTTL)}
+	r.mu.Unlock()
+	return inGroup, nil
+}
+
+func memberInGroup(role telebot.MemberStatus) bool {
+	switch role {
+	case telebot.Creator, telebot.Administrator, telebot.Member, telebot.Restricted:
+		return true
+	default:
+		return false
+	}
 }
