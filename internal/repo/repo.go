@@ -18,11 +18,21 @@ func New(db *gorm.DB) *Repo {
 	return &Repo{db: db}
 }
 
+// messageUnixPtr 把 Telegram date 收成可空列。0 和负数表示未知，写成 NULL，
+// 这样升级前的调用和新消息缺少 date 时都不会被当成 1970 年。
+func messageUnixPtr(unix int64) *int64 {
+	if unix <= 0 {
+		return nil
+	}
+	v := unix
+	return &v
+}
+
 // FindOrCreateRecord 返回 (chat, key) 对应的记录。
 //
 // 首次出现时会在同一事务内创建记录并写入第 1 条 ForwardLog。排行榜只统计
 // 重复出现，查询时会排除这条首次流水；后续出现由 DecideAndLog 负责计数和写日志。
-func (r *Repo) FindOrCreateRecord(chatID int64, key string, targetMsgID int, senderID int64) (*models.ForwardRecord, bool, error) {
+func (r *Repo) FindOrCreateRecord(chatID int64, key string, targetMsgID int, senderID, messageUnix int64) (*models.ForwardRecord, bool, error) {
 	pending := true
 	lastMsgID := targetMsgID
 	rec := models.ForwardRecord{
@@ -53,7 +63,7 @@ func (r *Repo) FindOrCreateRecord(chatID int64, key string, targetMsgID int, sen
 		}
 		isNew = true
 
-		log := models.ForwardLog{RecordID: rec.ID, SenderID: senderID, TargetMsgID: targetMsgID}
+		log := models.ForwardLog{RecordID: rec.ID, SenderID: senderID, TargetMsgID: targetMsgID, MessageUnix: messageUnixPtr(messageUnix)}
 		if err := tx.Create(&log).Error; err != nil {
 			return fmt.Errorf("create first log: %w", err)
 		}
@@ -125,7 +135,7 @@ type PairDecision struct {
 // 旧行新增的 last_occurrence_msg_id 为 NULL，第一次出现一定走普通分支并显式
 // 写回 pending_pair；相邻分支遇到 pending_pair 仍为 NULL 的异常行时，也只按
 // ForwardCount 奇偶把它显式化，不改变原语义。
-func (r *Repo) DecideAndLog(rec *models.ForwardRecord, targetMsgID int, senderID int64, adjacentGap int) (*PairDecision, error) {
+func (r *Repo) DecideAndLog(rec *models.ForwardRecord, targetMsgID int, senderID int64, adjacentGap int, messageUnix int64) (*PairDecision, error) {
 	decision := &PairDecision{}
 
 	err := r.db.Transaction(func(tx *gorm.DB) error {
@@ -173,7 +183,7 @@ func (r *Repo) DecideAndLog(rec *models.ForwardRecord, targetMsgID int, senderID
 				decision.Seq = int64(row.ForwardCount)
 				decision.Adjacent = true
 
-				log := models.ForwardLog{RecordID: rec.ID, SenderID: senderID, TargetMsgID: targetMsgID}
+				log := models.ForwardLog{RecordID: rec.ID, SenderID: senderID, TargetMsgID: targetMsgID, MessageUnix: messageUnixPtr(messageUnix)}
 				if err := tx.Create(&log).Error; err != nil {
 					return fmt.Errorf("create log: %w", err)
 				}
@@ -223,7 +233,7 @@ func (r *Repo) DecideAndLog(rec *models.ForwardRecord, targetMsgID int, senderID
 		}
 		decision.Seq = int64(row.ForwardCount)
 
-		log := models.ForwardLog{RecordID: rec.ID, SenderID: senderID, TargetMsgID: targetMsgID}
+		log := models.ForwardLog{RecordID: rec.ID, SenderID: senderID, TargetMsgID: targetMsgID, MessageUnix: messageUnixPtr(messageUnix)}
 		if err := tx.Create(&log).Error; err != nil {
 			return fmt.Errorf("create log: %w", err)
 		}

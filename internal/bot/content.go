@@ -24,26 +24,10 @@ type GroupMembership interface {
 	InGroup(chat *telebot.Chat, userID int64) (bool, error)
 }
 
-// AnalyzeMessageContent 按正常去重的顺序判定消息内容键。
-// 不查群成员，因此“原作者仍在本群”的转发不会在这里跳过。
-// 检测流程与 /hyw 要使用 AnalyzeMessageContentWithMembership。
+// AnalyzeMessageContent 只计算内容键，不查历史出现，也不做引用豁免。
+// 检测流程与 /hyw 必须调用 PrepareMessageContent，避免两套规则漂移。
 func AnalyzeMessageContent(msg *telebot.Message, secret string) MessageContent {
-	return AnalyzeMessageContentWithMembership(msg, secret, nil)
-}
-
-// AnalyzeMessageContentWithMembership 在内容键之上应用引用豁免。
-// 检测流程与 /hyw 都必须调用它，避免两套规则漂移。
-// members 为空、或查询失败时，无法确认原作者是否在群，这类转发仍按内容去重。
-func AnalyzeMessageContentWithMembership(msg *telebot.Message, secret string, members GroupMembership) MessageContent {
-	content := fingerprintMessage(msg, secret)
-	// 频道转发（含自动转发进讨论组）保持原键，不受引用豁免影响。
-	if content.Key == "" || content.Kind == "channel" {
-		return content
-	}
-	if citationExempt(msg, content.Key, secret, members) {
-		return MessageContent{SkipDecision: DecisionCitationSkipped}
-	}
-	return content
+	return fingerprintMessage(msg, secret)
 }
 
 // fingerprintMessage 只计算内容键，不应用引用豁免。

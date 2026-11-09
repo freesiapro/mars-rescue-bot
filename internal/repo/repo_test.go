@@ -22,7 +22,7 @@ func setupRepo(t *testing.T) *Repo {
 func TestFindOrCreateRecord(t *testing.T) {
 	r := setupRepo(t)
 
-	rec, isNew, err := r.FindOrCreateRecord(-100, "key", 10, 42)
+	rec, isNew, err := r.FindOrCreateRecord(-100, "key", 10, 42, 0)
 	if err != nil {
 		t.Fatalf("first FindOrCreateRecord: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestFindOrCreateRecord(t *testing.T) {
 		t.Errorf("first log = %+v, want sender 42 target 10", firstLog)
 	}
 
-	again, isNew, err := r.FindOrCreateRecord(-100, "key", 99, 7)
+	again, isNew, err := r.FindOrCreateRecord(-100, "key", 99, 7, 0)
 	if err != nil {
 		t.Fatalf("second FindOrCreateRecord: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestFindOrCreateRecord(t *testing.T) {
 func TestHasSenderForwardedAndIncrementAndLog(t *testing.T) {
 	r := setupRepo(t)
 
-	rec, _, err := r.FindOrCreateRecord(-100, "key", 10, 99)
+	rec, _, err := r.FindOrCreateRecord(-100, "key", 10, 99, 0)
 	if err != nil {
 		t.Fatalf("FindOrCreateRecord: %v", err)
 	}

@@ -66,10 +66,20 @@ func assertRankCount(t *testing.T, r *repo.Repo, want int) {
 }
 
 func userOrigin(msg *telebot.Message, authorID int64, name string) *telebot.Message {
+	return userOriginAt(msg, authorID, name, 0)
+}
+
+func userOriginAt(msg *telebot.Message, authorID int64, name string, unix int64) *telebot.Message {
 	msg.Origin = &telebot.MessageOrigin{
-		Type:   "user",
-		Sender: &telebot.User{ID: authorID, FirstName: name},
+		Type:         "user",
+		Sender:       &telebot.User{ID: authorID, FirstName: name},
+		DateUnixtime: unix,
 	}
+	return msg
+}
+
+func atUnix(msg *telebot.Message, unix int64) *telebot.Message {
+	msg.Unixtime = unix
 	return msg
 }
 
@@ -82,9 +92,10 @@ func TestCitationInGroupAuthorForward(t *testing.T) {
 			rec := &replyRecorder{}
 
 			authorID := int64(8001)
-			first := textMessage(testChatID, authorID, "Author", citeText, 10)
-			second := userOrigin(textMessage(testChatID, 8002, "Forwarder", citeText, 11), authorID, "Author")
-			third := userOrigin(textMessage(testChatID, 8003, "Again", citeText, 12), authorID, "Author")
+			const sentAt = int64(1_700_000_000)
+			first := atUnix(textMessage(testChatID, authorID, "Author", citeText, 10), sentAt)
+			second := userOriginAt(textMessage(testChatID, 8002, "Forwarder", citeText, 11), authorID, "Author", sentAt)
+			third := userOriginAt(textMessage(testChatID, 8003, "Again", citeText, 12), authorID, "Author", sentAt)
 			processAll(t, p, rec, first, second, third)
 
 			if len(rec.messages) != 0 {
@@ -97,8 +108,8 @@ func TestCitationInGroupAuthorForward(t *testing.T) {
 				t.Errorf("logs = %d, want 1", got)
 			}
 			assertRankCount(t, r, 0)
-			if members.calls != 1 {
-				t.Errorf("getChatMember calls = %d, want 1", members.calls)
+			if members.calls != 0 {
+				t.Errorf("getChatMember calls = %d, want 0 when the recorded time matches", members.calls)
 			}
 			lines := readDecisions(t, buf)
 			if len(lines) != 3 {
@@ -158,8 +169,9 @@ func TestCitationSelfForwardThenHandTypedStillAlerts(t *testing.T) {
 	p, r, db := setupCitation(t, members)
 	rec := &replyRecorder{}
 
-	first := textMessage(testChatID, 8001, "Me", citeText, 10)
-	self := userOrigin(textMessage(testChatID, 8001, "Me", citeText, 11), 8001, "Me")
+	const sentAt = int64(1_700_000_000)
+	first := atUnix(textMessage(testChatID, 8001, "Me", citeText, 10), sentAt)
+	self := userOriginAt(textMessage(testChatID, 8001, "Me", citeText, 11), 8001, "Me", sentAt)
 	again := textMessage(testChatID, 8001, "Me", citeText, 12)
 	processAll(t, p, rec, first, self, again)
 
@@ -249,6 +261,43 @@ func TestCitationChatOrigin(t *testing.T) {
 			t.Errorf("ContentKey = %q, want text key", record.ContentKey)
 		}
 	})
+
+	t.Run("this chat same time", func(t *testing.T) {
+		p, _, db := setupCitation(t, nil)
+		rec := &replyRecorder{}
+		const sentAt = int64(1_700_000_000)
+		first := atUnix(textMessage(testChatID, 8001, "Author", citeText, 10), sentAt)
+		second := textMessage(testChatID, 8002, "Forwarder", citeText, 11)
+		second.Origin = &telebot.MessageOrigin{
+			Type:         "chat",
+			DateUnixtime: sentAt,
+			SenderChat:   &telebot.Chat{ID: testChatID, Type: telebot.ChatSuperGroup},
+		}
+		processAll(t, p, rec, first, second)
+		if len(rec.messages) != 0 {
+			t.Fatalf("replies = %#v, want none", rec.messages)
+		}
+		if got := countRows(t, db, &models.ForwardLog{}); got != 1 {
+			t.Errorf("logs = %d, want 1", got)
+		}
+	})
+
+	t.Run("this chat different time", func(t *testing.T) {
+		p, _, _ := setupCitation(t, nil)
+		rec := &replyRecorder{}
+		const sentAt = int64(1_700_000_000)
+		first := atUnix(textMessage(testChatID, 8001, "Author", citeText, 10), sentAt)
+		second := textMessage(testChatID, 8002, "Forwarder", citeText, 11)
+		second.Origin = &telebot.MessageOrigin{
+			Type:         "chat",
+			DateUnixtime: sentAt + 100,
+			SenderChat:   &telebot.Chat{ID: testChatID, Type: telebot.ChatSuperGroup},
+		}
+		processAll(t, p, rec, first, second)
+		if len(rec.messages) != 1 {
+			t.Fatalf("replies = %#v, want the different anonymous message to alert", rec.messages)
+		}
+	})
 }
 
 func TestCitationChannelForwardStaysDuplicate(t *testing.T) {
@@ -317,11 +366,12 @@ func TestCitationInGroupPhotoSkippedOutsidePhotoAlerts(t *testing.T) {
 	t.Run("author in group", func(t *testing.T) {
 		p, r, db := setupCitation(t, &roleMembers{role: telebot.Member})
 		rec := &replyRecorder{}
-		first := textMessage(testChatID, 8001, "Cam", "", 10)
+		const sentAt = int64(1_700_000_000)
+		first := atUnix(textMessage(testChatID, 8001, "Cam", "", 10), sentAt)
 		first.Photo = &telebot.Photo{File: telebot.File{UniqueID: "cite-photo"}}
 		second := textMessage(testChatID, 8002, "Forwarder", "", 11)
 		second.Photo = &telebot.Photo{File: telebot.File{UniqueID: "cite-photo"}}
-		userOrigin(second, 8001, "Cam")
+		userOriginAt(second, 8001, "Cam", sentAt)
 		processAll(t, p, rec, first, second)
 		if len(rec.messages) != 0 {
 			t.Fatalf("replies = %#v, want none", rec.messages)
@@ -332,14 +382,15 @@ func TestCitationInGroupPhotoSkippedOutsidePhotoAlerts(t *testing.T) {
 		assertRankCount(t, r, 0)
 	})
 
-	t.Run("author outside", func(t *testing.T) {
-		p, _, _ := setupCitation(t, &roleMembers{role: telebot.Left})
+	t.Run("same member different time", func(t *testing.T) {
+		p, _, _ := setupCitation(t, &roleMembers{role: telebot.Member})
 		rec := &replyRecorder{}
-		first := textMessage(testChatID, 8001, "Cam", "", 10)
+		const sentAt = int64(1_700_000_000)
+		first := atUnix(textMessage(testChatID, 8001, "Cam", "", 10), sentAt)
 		first.Photo = &telebot.Photo{File: telebot.File{UniqueID: "cite-photo"}}
 		second := textMessage(testChatID, 8002, "Forwarder", "", 11)
 		second.Photo = &telebot.Photo{File: telebot.File{UniqueID: "cite-photo"}}
-		userOrigin(second, 8099, "Outsider")
+		userOriginAt(second, 8001, "Cam", sentAt+100)
 		processAll(t, p, rec, first, second)
 		if len(rec.messages) != 1 || !strings.Contains(rec.messages[0], "这张图") {
 			t.Fatalf("replies = %#v, want photo alert", rec.messages)
@@ -352,8 +403,9 @@ func TestCitationForwardThenComment(t *testing.T) {
 	buf := captureDecisionLog(t, p)
 	rec := &replyRecorder{}
 
-	original := textMessage(testChatID, 8001, "Author", citeText, 10)
-	forwarded := userOrigin(textMessage(testChatID, 8002, "Forwarder", citeText, 11), 8001, "Author")
+	const sentAt = int64(1_700_000_000)
+	original := atUnix(textMessage(testChatID, 8001, "Author", citeText, 10), sentAt)
+	forwarded := userOriginAt(textMessage(testChatID, 8002, "Forwarder", citeText, 11), 8001, "Author", sentAt)
 	shortComment := textMessage(testChatID, 8002, "Forwarder", "同意", 12)
 	shortComment.ReplyTo = forwarded
 	longComment := textMessage(testChatID, 8002, "Forwarder", "我觉得这里还可以再看看", 13)
@@ -486,4 +538,145 @@ func TestCitationMemberLookupFailureDoesNotSkip(t *testing.T) {
 	if record.ForwardCount != 2 {
 		t.Errorf("ForwardCount = %d, want 2", record.ForwardCount)
 	}
+}
+
+func TestCitationForwardOfRecordedMessageAndElsewhere(t *testing.T) {
+	const sentAt = int64(1_700_000_000)
+
+	t.Run("forward group member message", func(t *testing.T) {
+		members := &roleMembers{role: telebot.Left}
+		p, r, db := setupCitation(t, members)
+		rec := &replyRecorder{}
+		first := atUnix(textMessage(testChatID, 8001, "A", citeText, 10), sentAt)
+		forwarded := userOriginAt(textMessage(testChatID, 8002, "B", citeText, 11), 8001, "A", sentAt)
+		processAll(t, p, rec, first, forwarded)
+		if len(rec.messages) != 0 {
+			t.Fatalf("replies = %#v, want none", rec.messages)
+		}
+		if got := countRows(t, db, &models.ForwardLog{}); got != 1 {
+			t.Errorf("logs = %d, want 1", got)
+		}
+		assertRankCount(t, r, 0)
+		if members.calls != 0 {
+			t.Errorf("getChatMember calls = %d, want 0", members.calls)
+		}
+	})
+
+	t.Run("same content different author", func(t *testing.T) {
+		members := &roleMembers{role: telebot.Member}
+		p, _, _ := setupCitation(t, members)
+		rec := &replyRecorder{}
+		first := atUnix(textMessage(testChatID, 8001, "A", citeText, 10), sentAt)
+		forwarded := userOriginAt(textMessage(testChatID, 8002, "B", citeText, 11), 8099, "Other", sentAt)
+		processAll(t, p, rec, first, forwarded)
+		if len(rec.messages) != 1 {
+			t.Fatalf("replies = %#v, want one alert", rec.messages)
+		}
+		if members.calls != 0 {
+			t.Errorf("getChatMember calls = %d, want 0", members.calls)
+		}
+	})
+
+	t.Run("same author different time", func(t *testing.T) {
+		members := &roleMembers{role: telebot.Member}
+		p, _, _ := setupCitation(t, members)
+		rec := &replyRecorder{}
+		first := atUnix(textMessage(testChatID, 8001, "A", citeText, 10), sentAt)
+		forwarded := userOriginAt(textMessage(testChatID, 8001, "A", citeText, 11), 8001, "A", sentAt+100)
+		processAll(t, p, rec, first, forwarded)
+		if len(rec.messages) != 1 || !strings.Contains(rec.messages[0], "你自己") {
+			t.Fatalf("replies = %#v, want self-repeat alert for the other message", rec.messages)
+		}
+		if members.calls != 0 {
+			t.Errorf("getChatMember calls = %d, want 0", members.calls)
+		}
+	})
+
+	t.Run("second occurrence", func(t *testing.T) {
+		p, _, db := setupCitation(t, &roleMembers{err: errors.New("should not be called")})
+		rec := &replyRecorder{}
+		const later = sentAt + 100
+		first := atUnix(textMessage(testChatID, 8001, "A", citeText, 10), sentAt)
+		second := atUnix(textMessage(testChatID, 8003, "C", citeText, 11), later)
+		forwarded := userOriginAt(textMessage(testChatID, 8002, "B", citeText, 12), 8003, "C", later)
+		processAll(t, p, rec, first, second, forwarded)
+		if len(rec.messages) != 1 {
+			t.Fatalf("replies = %#v, want only the second hand-typed alert", rec.messages)
+		}
+		if got := countRows(t, db, &models.ForwardLog{}); got != 2 {
+			t.Errorf("logs = %d, want 2", got)
+		}
+	})
+}
+
+func TestCitationOriginTimeTolerance(t *testing.T) {
+	const sentAt = int64(1_700_000_000)
+	for _, tt := range []struct {
+		name  string
+		delta int64
+		skip  bool
+	}{
+		{name: "exact", delta: 0, skip: true},
+		{name: "within tolerance", delta: originTimeTolerance, skip: true},
+		{name: "outside tolerance", delta: originTimeTolerance + 1, skip: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p, _, db := setupCitation(t, &roleMembers{role: telebot.Member})
+			rec := &replyRecorder{}
+			first := atUnix(textMessage(testChatID, 8001, "A", citeText, 10), sentAt)
+			forwarded := userOriginAt(textMessage(testChatID, 8002, "B", citeText, 11), 8001, "A", sentAt+tt.delta)
+			processAll(t, p, rec, first, forwarded)
+			if tt.skip {
+				if len(rec.messages) != 0 {
+					t.Fatalf("replies = %#v, want none", rec.messages)
+				}
+				if got := countRows(t, db, &models.ForwardLog{}); got != 1 {
+					t.Errorf("logs = %d, want 1", got)
+				}
+				return
+			}
+			if len(rec.messages) != 1 {
+				t.Fatalf("replies = %#v, want one alert", rec.messages)
+			}
+		})
+	}
+}
+
+func TestCitationLegacyLogFallsBackToMembership(t *testing.T) {
+	t.Run("still in group", func(t *testing.T) {
+		members := &roleMembers{role: telebot.Member}
+		p, _, db := setupCitation(t, members)
+		rec := &replyRecorder{}
+		first := textMessage(testChatID, 8001, "A", citeText, 10)
+		forwarded := userOriginAt(textMessage(testChatID, 8002, "B", citeText, 11), 8001, "A", 1_700_000_000)
+		processAll(t, p, rec, first, forwarded)
+		if members.calls != 1 {
+			t.Errorf("getChatMember calls = %d, want 1", members.calls)
+		}
+		if len(rec.messages) != 0 {
+			t.Fatalf("replies = %#v, want none", rec.messages)
+		}
+		if got := countRows(t, db, &models.ForwardLog{}); got != 1 {
+			t.Errorf("logs = %d, want 1", got)
+		}
+		var unix *int64
+		if err := db.Model(&models.ForwardLog{}).Select("message_unix").Scan(&unix).Error; err != nil {
+			t.Fatalf("read message_unix: %v", err)
+		}
+		if unix != nil {
+			t.Errorf("legacy message_unix = %v, want NULL", *unix)
+		}
+	})
+
+	t.Run("left the group", func(t *testing.T) {
+		members := &roleMembers{role: telebot.Left}
+		p, _, _ := setupCitation(t, members)
+		rec := &replyRecorder{}
+		first := textMessage(testChatID, 8001, "A", citeText, 10)
+		forwarded := userOriginAt(textMessage(testChatID, 8002, "B", citeText, 11), 8001, "A", 1_700_000_000)
+		processAll(t, p, rec, first, forwarded)
+		if len(rec.messages) != 1 {
+			t.Fatalf("replies = %#v, want one alert", rec.messages)
+		}
+	})
 }

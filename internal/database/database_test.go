@@ -188,6 +188,82 @@ func TestClearLegacyUserNames(t *testing.T) {
 	}
 }
 
+// TestInitMigratesLegacyMessageUnix 用升级前的库启动，确认 message_unix 被补成可空列，
+// 旧流水仍在且时间为空，进程可以照常打开数据库。
+func TestInitMigratesLegacyMessageUnix(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy-message-unix.db")
+	raw, err := gorm.Open(sqlite.Open(path), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	rawSQL, err := raw.DB()
+	if err != nil {
+		t.Fatalf("get underlying sql.DB: %v", err)
+	}
+	if err := raw.Exec(`CREATE TABLE forward_logs (
+		id integer PRIMARY KEY AUTOINCREMENT,
+		record_id integer NOT NULL,
+		sender_id integer NOT NULL,
+		target_msg_id integer NOT NULL,
+		created_at datetime
+	)`).Error; err != nil {
+		t.Fatalf("create legacy forward_logs: %v", err)
+	}
+	if err := raw.Exec(
+		`INSERT INTO forward_logs (record_id, sender_id, target_msg_id) VALUES (?, ?, ?)`,
+		1, 42, 7,
+	).Error; err != nil {
+		t.Fatalf("insert legacy log: %v", err)
+	}
+	if err := rawSQL.Close(); err != nil {
+		t.Fatalf("close legacy database: %v", err)
+	}
+
+	oldPath := config.DBPath
+	oldDB := DB
+	config.DBPath = path
+	t.Cleanup(func() {
+		config.DBPath = oldPath
+		if DB != nil && DB != oldDB {
+			if sqlDB, err := DB.DB(); err == nil {
+				sqlDB.Close()
+			}
+		}
+		DB = oldDB
+	})
+
+	if err := Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	var unix sql.NullInt64
+	if err := DB.Raw(`SELECT message_unix FROM forward_logs WHERE sender_id = ?`, 42).Scan(&unix).Error; err != nil {
+		t.Fatalf("read migrated message_unix: %v", err)
+	}
+	if unix.Valid {
+		t.Errorf("legacy message_unix = %d, want NULL", unix.Int64)
+	}
+
+	stamp := int64(1_700_000_000)
+	if err := DB.Create(&models.ForwardLog{
+		RecordID:    1,
+		SenderID:    43,
+		TargetMsgID: 8,
+		MessageUnix: &stamp,
+	}).Error; err != nil {
+		t.Fatalf("insert timed log: %v", err)
+	}
+	var count int64
+	if err := DB.Model(&models.ForwardLog{}).Count(&count).Error; err != nil {
+		t.Fatalf("count logs: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("logs = %d, want 2", count)
+	}
+}
+
 // TestAutoMigrateAddsTimeIndexes 验证旧库升级后会补上排行榜和清理任务所需的
 // forward_logs.created_at、forward_records.updated_at 索引。
 func TestAutoMigrateAddsTimeIndexes(t *testing.T) {

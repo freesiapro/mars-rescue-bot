@@ -44,7 +44,12 @@ func (h *CommandHandler) handleHYW(c telebot.Context) error {
 		return sendHYWReply(c, target, "📒 机器人发送的消息不记录，也不会提醒。")
 	}
 
-	content := bot.AnalyzeMessageContentWithMembership(target, h.dedupSecret, h.names)
+	content, err := bot.PrepareMessageContent(target, h.dedupSecret, h.names, func(key string) ([]models.ForwardLog, error) {
+		return h.repo.ListOccurrenceStamps(msg.Chat.ID, key)
+	})
+	if err != nil {
+		return c.Reply(hywLookupError)
+	}
 	if content.Key == "" {
 		return sendHYWReply(c, target, hywSkipReason(content.SkipDecision))
 	}

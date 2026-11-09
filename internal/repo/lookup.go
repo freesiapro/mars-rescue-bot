@@ -22,6 +22,16 @@ func (r *Repo) FindRecordByKey(chatID int64, key string) (*models.ForwardRecord,
 	return &record, true, nil
 }
 
+// ListOccurrenceStamps 返回本群该内容键已记录的出现流水。
+// 没有记录时返回空切片，不视为错误。供转发比对原作者和消息时间。
+func (r *Repo) ListOccurrenceStamps(chatID int64, key string) ([]models.ForwardLog, error) {
+	record, found, err := r.FindRecordByKey(chatID, key)
+	if err != nil || !found {
+		return nil, err
+	}
+	return r.ListRecordLogs(record.ID)
+}
+
 // ListRecordLogs 返回一条内容记录的全部出现流水，按写入顺序排列。
 // 只读，供 /hyw 推导某条消息是否被记录以及相邻关系。
 func (r *Repo) ListRecordLogs(recordID uint64) ([]models.ForwardLog, error) {
