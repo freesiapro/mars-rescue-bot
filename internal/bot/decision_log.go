@@ -18,14 +18,14 @@ const (
 	DecisionShortTextSkipped     = "short_text_skipped"
 	DecisionRepeatedCharSkipped  = "repeated_char_skipped"
 	DecisionMentionOnly          = "mention_only"
-	// DecisionCitationSkipped 表示这条是本群来源的非频道转发，或回复内容与被回复消息相同。
-	// 不写入 forward_records / forward_logs，不提醒，也不计入排行榜。频道转发不会走到这里。
+	// DecisionCitationSkipped 表示这条转发对上了本群已记录的某一次出现，
+	// 或回复内容与被回复消息相同。不写入 forward_records / forward_logs，
+	// 不提醒，也不计入排行榜。频道转发不会走到这里。
 	DecisionCitationSkipped = "citation_skipped"
 	DecisionBotIgnored      = "bot_ignored"
 	// DecisionForwardFromBotIgnored 是保留值：当前没有“转发来源是 bot”这一独立分支。
-	// 只有 msg.Sender.IsBot（发送者本身是 bot）会被忽略。人类转发 bot 内容时，
-	// 若该 bot 仍在本群，走 citation_skipped；否则与其他非频道转发一样按内容键去重。
-	// 因此该值当前不可达。
+	// 只有 msg.Sender.IsBot（发送者本身是 bot）会被忽略。人类转发 bot 内容时
+	// 与其他用户转发一样，按原作者和时间判断，因此该值当前不可达。
 	DecisionForwardFromBotIgnored = "forward_from_bot_ignored"
 	DecisionIgnoredUser           = "ignored_user"
 	DecisionDisabledChat          = "disabled_chat"

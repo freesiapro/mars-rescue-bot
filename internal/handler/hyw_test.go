@@ -121,14 +121,14 @@ func seedHYWMessage(t *testing.T, r *repo.Repo, msg *telebot.Message, adjacentGa
 	if err := r.UpsertUserStats(msg.Sender.ID); err != nil {
 		t.Fatalf("UpsertUserStats(user %d) error = %v", msg.Sender.ID, err)
 	}
-	record, isNew, err := r.FindOrCreateRecord(msg.Chat.ID, content.Key, msg.ID, msg.Sender.ID)
+	record, isNew, err := r.FindOrCreateRecord(msg.Chat.ID, content.Key, msg.ID, msg.Sender.ID, msg.Unixtime)
 	if err != nil {
 		t.Fatalf("FindOrCreateRecord(msg %d) error = %v", msg.ID, err)
 	}
 	if isNew {
 		return record
 	}
-	if _, err := r.DecideAndLog(record, msg.ID, msg.Sender.ID, adjacentGap); err != nil {
+	if _, err := r.DecideAndLog(record, msg.ID, msg.Sender.ID, adjacentGap, msg.Unixtime); err != nil {
 		t.Fatalf("DecideAndLog(msg %d) error = %v", msg.ID, err)
 	}
 	return record
@@ -453,7 +453,7 @@ func TestHYWUnknownDecisionDoesNotFabricate(t *testing.T) {
 	if err := r.UpsertUserStats(base.Sender.ID); err != nil {
 		t.Fatalf("UpsertUserStats() error = %v", err)
 	}
-	if _, _, err := r.FindOrCreateRecord(hywTestChatID, content.Key, base.ID, base.Sender.ID); err != nil {
+	if _, _, err := r.FindOrCreateRecord(hywTestChatID, content.Key, base.ID, base.Sender.ID, base.Unixtime); err != nil {
 		t.Fatalf("FindOrCreateRecord(first) error = %v", err)
 	}
 
@@ -468,11 +468,11 @@ func TestHYWUnknownDecisionDoesNotFabricate(t *testing.T) {
 		{28, 4},
 	} {
 		msg := hywTextMessage(hywTestChatID, item.userID, "hyw cooldown text", item.msgID)
-		record, _, err := r.FindOrCreateRecord(hywTestChatID, content.Key, msg.ID, msg.Sender.ID)
+		record, _, err := r.FindOrCreateRecord(hywTestChatID, content.Key, msg.ID, msg.Sender.ID, msg.Unixtime)
 		if err != nil {
 			t.Fatalf("FindOrCreateRecord(msg %d) error = %v", msg.ID, err)
 		}
-		decision, err := r.DecideAndLog(record, msg.ID, msg.Sender.ID, 0)
+		decision, err := r.DecideAndLog(record, msg.ID, msg.Sender.ID, 0, msg.Unixtime)
 		if err != nil {
 			t.Fatalf("DecideAndLog(msg %d) error = %v", msg.ID, err)
 		}
@@ -534,14 +534,19 @@ func (p *hywMemberProvider) ChatMemberOf(telebot.Recipient, telebot.Recipient) (
 func TestHYWCitationSkippedUsesSameRule(t *testing.T) {
 	const want = "📒 这条是转发或引用，不记录，也不会提醒。"
 
-	t.Run("in-group forward", func(t *testing.T) {
-		h, _, _ := setupHYW(t)
-		provider := &hywMemberProvider{role: telebot.Member}
+	t.Run("forward of the recorded message", func(t *testing.T) {
+		h, r, _ := setupHYW(t)
+		provider := &hywMemberProvider{role: telebot.Left}
 		h.names = names.New(provider)
+		const sentAt = int64(1_700_000_000)
+		original := hywTextMessage(hywTestChatID, 8001, "hello mars bot", 9)
+		original.Unixtime = sentAt
+		seedHYWMessage(t, r, original, 0)
 		target := hywTextMessage(hywTestChatID, 8002, "hello mars bot", 10)
 		target.Origin = &telebot.MessageOrigin{
-			Type:   "user",
-			Sender: &telebot.User{ID: 8001, FirstName: "Author"},
+			Type:         "user",
+			DateUnixtime: sentAt,
+			Sender:       &telebot.User{ID: 8001, FirstName: "Author"},
 		}
 		ctx, _ := runHYW(t, h, hywTestChatID, target)
 		reply := assertHYWReplyToTarget(t, ctx, target)
@@ -550,6 +555,27 @@ func TestHYWCitationSkippedUsesSameRule(t *testing.T) {
 		}
 		if strings.Contains(reply, "已记录") || strings.Contains(reply, "没有这条内容的记录") {
 			t.Errorf("reply = %q, want the skip copy instead of a record lookup", reply)
+		}
+		if provider.calls != 0 {
+			t.Errorf("getChatMember calls = %d, want 0", provider.calls)
+		}
+	})
+
+	t.Run("legacy log falls back to membership", func(t *testing.T) {
+		h, r, _ := setupHYW(t)
+		provider := &hywMemberProvider{role: telebot.Member}
+		h.names = names.New(provider)
+		seedHYWMessage(t, r, hywTextMessage(hywTestChatID, 8001, "hello mars bot", 9), 0)
+		target := hywTextMessage(hywTestChatID, 8002, "hello mars bot", 10)
+		target.Origin = &telebot.MessageOrigin{
+			Type:         "user",
+			DateUnixtime: 1_700_000_000,
+			Sender:       &telebot.User{ID: 8001, FirstName: "Author"},
+		}
+		ctx, _ := runHYW(t, h, hywTestChatID, target)
+		reply := assertHYWReplyToTarget(t, ctx, target)
+		if reply != want {
+			t.Errorf("reply = %q, want %q", reply, want)
 		}
 		if provider.calls != 1 {
 			t.Errorf("getChatMember calls = %d, want 1", provider.calls)

@@ -132,7 +132,13 @@ func (p *Processor) processMessage(msg *telebot.Message, traceID string, reply f
 		return nil
 	}
 
-	content := AnalyzeMessageContentWithMembership(msg, p.dedupSecret, p.names)
+	content, err := PrepareMessageContent(msg, p.dedupSecret, p.names, func(key string) ([]models.ForwardLog, error) {
+		return p.repo.ListOccurrenceStamps(msg.Chat.ID, key)
+	})
+	if err != nil {
+		rec.set(DecisionProcessingError)
+		return err
+	}
 	if content.Key == "" {
 		if content.SkipDecision != "" {
 			rec.set(content.SkipDecision)
@@ -209,7 +215,7 @@ func (p *Processor) logOccurrence(msg *telebot.Message, key, kind string, rec *d
 		return nil, err
 	}
 
-	record, isNew, err := p.repo.FindOrCreateRecord(msg.Chat.ID, key, msg.ID, msg.Sender.ID)
+	record, isNew, err := p.repo.FindOrCreateRecord(msg.Chat.ID, key, msg.ID, msg.Sender.ID, messageUnix(msg))
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +225,7 @@ func (p *Processor) logOccurrence(msg *telebot.Message, key, kind string, rec *d
 	}
 
 	// 决策 1：不区分发送者，自己重复发也计入配对并提醒。
-	decision, err := p.repo.DecideAndLog(record, msg.ID, msg.Sender.ID, p.adjacentRepeatGap)
+	decision, err := p.repo.DecideAndLog(record, msg.ID, msg.Sender.ID, p.adjacentRepeatGap, messageUnix(msg))
 	if err != nil {
 		return nil, err
 	}

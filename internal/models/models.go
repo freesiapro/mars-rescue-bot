@@ -33,10 +33,13 @@ func (ForwardRecord) TableName() string {
 // ForwardLog 记录每次具体的转发/发送行为（用于排行榜和复读检测）。
 // 排行榜只统计重复出现，会排除每条记录的第一条流水（首次出现）。
 type ForwardLog struct {
-	ID          uint64    `gorm:"primaryKey"`
-	RecordID    uint64    `gorm:"notNull;index;index:idx_record_sender"`
-	SenderID    int64     `gorm:"notNull;index:idx_record_sender"`
-	TargetMsgID int       `gorm:"notNull"`
+	ID          uint64 `gorm:"primaryKey"`
+	RecordID    uint64 `gorm:"notNull;index;index:idx_record_sender"`
+	SenderID    int64  `gorm:"notNull;index:idx_record_sender"`
+	TargetMsgID int    `gorm:"notNull"`
+	// MessageUnix 是这条消息出现在群里时的 Telegram date（Unix 秒）。
+	// 只存数字时间，不存原文。为空表示升级前的旧流水，无法按“原作者 + 时间”辨认转发。
+	MessageUnix *int64    `gorm:"column:message_unix"`
 	CreatedAt   time.Time `gorm:"autoCreateTime;index"`
 }
 
