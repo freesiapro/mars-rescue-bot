@@ -132,7 +132,7 @@ func (p *Processor) processMessage(msg *telebot.Message, traceID string, reply f
 		return nil
 	}
 
-	content := AnalyzeMessageContent(msg, p.dedupSecret)
+	content := AnalyzeMessageContentWithMembership(msg, p.dedupSecret, p.names)
 	if content.Key == "" {
 		if content.SkipDecision != "" {
 			rec.set(content.SkipDecision)
@@ -187,7 +187,7 @@ func isChannelForward(msg *telebot.Message) bool {
 // mediaContentKey 返回去重键和提醒文案里的名词。名词只影响展示，不参与去重。
 // 图片取最大尺寸（telebot 已选择）的 file_unique_id；视频、动画、文件直接取其
 // file_unique_id。不下载文件，也不保存文件内容。频道转发的媒体走频道分支；
-// 其他转发与手打媒体使用同一个内容键。
+// 其他转发与手打媒体使用同一个内容键。本群来源的转发在得到键之后再跳过，不入库。
 func mediaContentKey(msg *telebot.Message) (key, subject string, ok bool) {
 	switch {
 	case msg.Photo != nil && msg.Photo.UniqueID != "":

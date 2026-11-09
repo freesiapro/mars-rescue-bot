@@ -12,6 +12,8 @@ func TestFormatPrivacy(t *testing.T) {
 		"file_unique_id",
 		"不保存用户名或姓名",
 		"向 Telegram 查询",
+		"成员状态",
+		"不写入数据库",
 		"用户 &lt;id&gt;",
 		"90 天",
 		"DATA_RETENTION_DAYS",

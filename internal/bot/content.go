@@ -18,9 +18,37 @@ type MessageContent struct {
 	SkipDecision string
 }
 
+// GroupMembership 报告某用户现在是否还在群里。
+// 查询失败必须返回 error，调用方会据此保留这条转发，而不是当成引用跳过。
+type GroupMembership interface {
+	InGroup(chat *telebot.Chat, userID int64) (bool, error)
+}
+
 // AnalyzeMessageContent 按正常去重的顺序判定消息内容键。
-// 检测流程与 /hyw 查询都必须调用它，避免两套规则漂移。
+// 不查群成员，因此“原作者仍在本群”的转发不会在这里跳过。
+// 检测流程与 /hyw 要使用 AnalyzeMessageContentWithMembership。
 func AnalyzeMessageContent(msg *telebot.Message, secret string) MessageContent {
+	return AnalyzeMessageContentWithMembership(msg, secret, nil)
+}
+
+// AnalyzeMessageContentWithMembership 在内容键之上应用引用豁免。
+// 检测流程与 /hyw 都必须调用它，避免两套规则漂移。
+// members 为空、或查询失败时，无法确认原作者是否在群，这类转发仍按内容去重。
+func AnalyzeMessageContentWithMembership(msg *telebot.Message, secret string, members GroupMembership) MessageContent {
+	content := fingerprintMessage(msg, secret)
+	// 频道转发（含自动转发进讨论组）保持原键，不受引用豁免影响。
+	if content.Key == "" || content.Kind == "channel" {
+		return content
+	}
+	if citationExempt(msg, content.Key, secret, members) {
+		return MessageContent{SkipDecision: DecisionCitationSkipped}
+	}
+	return content
+}
+
+// fingerprintMessage 只计算内容键，不应用引用豁免。
+// 回复比对必须用它，避免被回复的那条本身是豁免转发时键被清掉。
+func fingerprintMessage(msg *telebot.Message, secret string) MessageContent {
 	if msg == nil {
 		return MessageContent{SkipDecision: DecisionNoContent}
 	}

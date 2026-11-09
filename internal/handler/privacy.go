@@ -38,7 +38,7 @@ func formatPrivacy(retentionDays int) string {
 • 用户名、姓名
 
 <b>姓名显示</b>
-姓名只保留在本次运行的内存中，展示时向 Telegram 查询。查询失败显示“用户 &lt;id&gt;”。
+姓名只保留在本次运行的内存中，展示时向 Telegram 查询。查询失败显示“用户 &lt;id&gt;”。判断一条转发的原作者是否还在本群时，也会向 Telegram 查询成员状态；结果同样只留在内存中，不写入数据库。
 
 <b>保留期</b>
 默认 %d 天，由环境变量 <code>DATA_RETENTION_DAYS</code> 设置。启动时清理一次，之后每 24 小时清理过期记录。榜单和 /mars_me 的「累计」只统计保留期内的重复次数。`, retentionDays)
