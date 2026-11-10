@@ -7,7 +7,7 @@
 ```text
 main.go                  程序入口：配置、数据库、Telegram 客户端、维护任务
 internal/bot             消息检测、内容键、归一化、配对、提醒与决策日志
-internal/handler         命令注册、消息处理、管理员操作、/hyw 与隐私说明
+internal/handler         命令注册、消息处理、管理员操作、/hyw、/changelog 与隐私说明
 internal/repo            GORM 数据访问：记录、流水、统计、群设置、忽略名单
 internal/models          GORM 模型
 internal/config          环境变量读取与默认值

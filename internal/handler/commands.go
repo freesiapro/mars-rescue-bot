@@ -47,6 +47,7 @@ func NewCommandHandler(r *repo.Repo, admins *AdminChecker, resolver *names.Resol
 func (h *CommandHandler) Register(bot *telebot.Bot) {
 	bot.Handle("/start", h.handleStart)
 	bot.Handle("/hyw", h.handleHYW)
+	bot.Handle("/changelog", h.handleChangelog)
 	bot.Handle("/mars_rank", h.handleRank)
 	bot.Handle("/mars_me", h.handleMe)
 	bot.Handle("/mars_privacy", h.handlePrivacy)
@@ -77,6 +78,7 @@ func (h *CommandHandler) handleStart(c telebot.Context) error {
 			"第一次出现只记录，不计入火星次数。哈哈哈哈、666666 这类同一个字的刷屏不记录。\n" +
 			"文字忽略大小写和标点。频道转发按原帖识别。转发本群里已经出现过的那一条，或回复时贴出同一内容，不记录。从别处转来的相同内容仍会提醒。\n\n" +
 			"/hyw - 回复一条消息，查看是否已记录、共出现几次（含第一次），以及这次有没有提醒（只读）\n" +
+			"/changelog - 查看最近的更新，可附加正整数，默认 1 条，最多 10 条\n" +
 			"/mars_rank - 本群火星次数，可加 week、month 或 all，默认本周\n" +
 			"/mars_me - 查看自己的火星次数\n" +
 			"/mars_privacy - 查看数据保存与保留说明\n" +
