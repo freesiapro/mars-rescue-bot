@@ -49,6 +49,7 @@ type decisionRecorder struct {
 	msg      *telebot.Message
 	decision string
 	key      string
+	reason   string
 	decided  bool
 	logged   bool
 }
@@ -67,6 +68,11 @@ func (d *decisionRecorder) set(decision string) {
 
 func (d *decisionRecorder) setKey(key string) {
 	d.key = key
+}
+
+// setReason 记录引用豁免的判定原因。只影响日志，不改变处理结果。
+func (d *decisionRecorder) setReason(reason string) {
+	d.reason = reason
 }
 
 func (d *decisionRecorder) log() {
@@ -98,6 +104,17 @@ func (d *decisionRecorder) log() {
 		"msg_type", messageType(d.msg),
 		"decision", d.decision,
 		"user_id", userID,
+	}
+	// Origin 存在时记录来源类型与原发送时间，便于排查转发为什么被或没有被豁免。
+	// 只写类型和 Unix 秒，不写姓名或消息内容。
+	if d.msg != nil && d.msg.Origin != nil {
+		attrs = append(attrs,
+			"origin_type", d.msg.Origin.Type,
+			"origin_date", d.msg.Origin.DateUnixtime,
+		)
+	}
+	if d.reason != "" {
+		attrs = append(attrs, "reason", d.reason)
 	}
 	if d.key != "" {
 		attrs = append(attrs, "key_hash", contentKeyHash(d.secret, d.key))

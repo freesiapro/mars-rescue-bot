@@ -4,9 +4,11 @@ package names
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
+	"golang.org/x/text/unicode/norm"
 	"gopkg.in/telebot.v4"
 )
 
@@ -116,6 +118,40 @@ func displayName(user *telebot.User) string {
 		return user.FirstName
 	}
 	return user.Username
+}
+
+// NormalizeName 把姓名转成可比较的形式：Unicode NFC、去首尾空白、合并连续空白。
+// 只用于“隐藏来源转发”的显示名比对，不写入数据库或日志。
+func NormalizeName(name string) string {
+	return strings.Join(strings.Fields(norm.NFC.String(name)), " ")
+}
+
+// MemberName 返回 userID 在 chat 中的当前显示名（first_name + " " + last_name）。
+// 用户不在群内、缺少姓名或查询失败时返回 error；不做缓存，确保读到当前姓名。
+func (r *Resolver) MemberName(chat *telebot.Chat, userID int64) (string, error) {
+	if r == nil || r.provider == nil || chat == nil || userID <= 0 {
+		return "", errMemberLookup
+	}
+
+	member, err := r.provider.ChatMemberOf(chat, &telebot.User{ID: userID})
+	if err != nil {
+		return "", err
+	}
+	if member == nil || !memberInGroup(member.Role) || member.User == nil {
+		return "", errMemberLookup
+	}
+	name := fullName(member.User)
+	if name == "" {
+		return "", errMemberLookup
+	}
+	return name, nil
+}
+
+func fullName(user *telebot.User) string {
+	if user == nil {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimSpace(user.FirstName) + " " + strings.TrimSpace(user.LastName))
 }
 
 func fallbackName(userID int64) string {

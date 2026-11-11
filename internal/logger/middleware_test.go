@@ -34,6 +34,79 @@ func TestLogMessageReceivedOmitsUsername(t *testing.T) {
 	}
 }
 
+func TestLogMessageReceivedRecognizesOriginOnlyForward(t *testing.T) {
+	var buf bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(old) })
+
+	const originDate = int64(1_700_000_000)
+	LogMessageReceived("trace-origin", &telebot.Message{
+		ID:     44,
+		Text:   "hidden source text",
+		Sender: &telebot.User{ID: 9, FirstName: "Forwarder"},
+		Chat:   &telebot.Chat{ID: -100, Type: telebot.ChatSuperGroup},
+		Origin: &telebot.MessageOrigin{
+			Type:           "hidden_user",
+			SenderUsername: "Secret Original Name",
+			DateUnixtime:   originDate,
+		},
+	})
+
+	out := buf.String()
+	for _, want := range []string{
+		`"msg_type":"forward"`,
+		`"forward_origin":"hidden_user"`,
+		`"has_sender_name":true`,
+		`"origin_date":1700000000`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log output = %s, want containing %s", out, want)
+		}
+	}
+	if strings.Contains(out, "Secret Original Name") {
+		t.Errorf("log output leaked the original sender name: %s", out)
+	}
+	if strings.Contains(out, "origin_user_id") {
+		t.Errorf("log output has origin_user_id for a hidden source: %s", out)
+	}
+}
+
+func TestLogMessageReceivedOriginUserID(t *testing.T) {
+	var buf bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(old) })
+
+	LogMessageReceived("trace-user-origin", &telebot.Message{
+		ID:     45,
+		Text:   "user source text",
+		Sender: &telebot.User{ID: 10, FirstName: "Forwarder"},
+		Chat:   &telebot.Chat{ID: -100, Type: telebot.ChatSuperGroup},
+		Origin: &telebot.MessageOrigin{
+			Type:         "user",
+			Sender:       &telebot.User{ID: 77, FirstName: "Original"},
+			DateUnixtime: 1_700_000_001,
+		},
+	})
+
+	out := buf.String()
+	for _, want := range []string{
+		`"msg_type":"forward"`,
+		`"forward_origin":"user"`,
+		`"origin_user_id":77`,
+		`"origin_date":1700000001`,
+		`"has_sender_name":false`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log output = %s, want containing %s", out, want)
+		}
+	}
+	if strings.Contains(out, "Original") {
+		t.Errorf("log output leaked the original sender name: %s", out)
+	}
+}
+
 func TestLogMessageReceivedRecognizesRichMessage(t *testing.T) {
 	var buf bytes.Buffer
 	old := slog.Default()

@@ -16,12 +16,19 @@ type MessageContent struct {
 	KeyType      string // 展示用：文本、链接、图片、视频、动图、文件、频道转发
 	MediaSubject string
 	SkipDecision string
+	// CitationReason 说明引用豁免的判定结果：命中时是豁免原因，
+	// 未命中时是没豁免的原因。只写日志，不影响检测结果。
+	CitationReason string
 }
 
-// GroupMembership 报告某用户现在是否还在群里。
+// GroupMembership 报告某用户现在是否还在群里，并解析当前显示名。
 // 查询失败必须返回 error，调用方会据此保留这条转发，而不是当成引用跳过。
 type GroupMembership interface {
 	InGroup(chat *telebot.Chat, userID int64) (bool, error)
+	// MemberName 返回当前显示名 first_name + " " + last_name（trim）。
+	// 用户不在群内、缺少姓名或查询失败时返回 error。
+	// 是否相等由调用方用 names.NormalizeName 统一规范化后判断。
+	MemberName(chat *telebot.Chat, userID int64) (string, error)
 }
 
 // AnalyzeMessageContent 只计算内容键，不查历史出现，也不做引用豁免。

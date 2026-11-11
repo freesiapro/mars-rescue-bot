@@ -86,6 +86,93 @@ func TestResolverNilAndInvalidInputs(t *testing.T) {
 	}
 }
 
+func TestNormalizeName(t *testing.T) {
+	for _, tt := range []struct {
+		in   string
+		want string
+	}{
+		{"  Hidden   Person  ", "Hidden Person"},
+		{"Hidden\tPerson", "Hidden Person"},
+		{"", ""},
+		{"   ", ""},
+	} {
+		if got := NormalizeName(tt.in); got != tt.want {
+			t.Errorf("NormalizeName(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+	// NFC 等价写法必须归一到同一结果。
+	if NormalizeName("Café") != NormalizeName("Café") {
+		t.Error("NFC-equivalent names should normalize equally")
+	}
+}
+
+func TestResolverMemberName(t *testing.T) {
+	chat := &telebot.Chat{ID: -100, Type: telebot.ChatSuperGroup}
+
+	t.Run("first and last name", func(t *testing.T) {
+		provider := &fakeProvider{member: &telebot.ChatMember{
+			Role: telebot.Member,
+			User: &telebot.User{ID: 7, FirstName: "Hidden", LastName: "Person"},
+		}}
+		got, err := New(provider).MemberName(chat, 7)
+		if err != nil {
+			t.Fatalf("MemberName() error = %v", err)
+		}
+		if got != "Hidden Person" {
+			t.Errorf("MemberName() = %q, want %q", got, "Hidden Person")
+		}
+	})
+
+	t.Run("first name only", func(t *testing.T) {
+		provider := &fakeProvider{member: &telebot.ChatMember{
+			Role: telebot.Member,
+			User: &telebot.User{ID: 7, FirstName: "Hidden"},
+		}}
+		got, err := New(provider).MemberName(chat, 7)
+		if err != nil {
+			t.Fatalf("MemberName() error = %v", err)
+		}
+		if got != "Hidden" {
+			t.Errorf("MemberName() = %q, want %q", got, "Hidden")
+		}
+	})
+
+	t.Run("left group", func(t *testing.T) {
+		provider := &fakeProvider{member: &telebot.ChatMember{
+			Role: telebot.Left,
+			User: &telebot.User{ID: 7, FirstName: "Gone"},
+		}}
+		if _, err := New(provider).MemberName(chat, 7); err == nil {
+			t.Fatal("MemberName() error = nil, want error for a member who left")
+		}
+	})
+
+	t.Run("missing name or member", func(t *testing.T) {
+		for _, provider := range []*fakeProvider{
+			{member: &telebot.ChatMember{Role: telebot.Member, User: &telebot.User{ID: 7}}},
+			{member: &telebot.ChatMember{Role: telebot.Member}},
+			{},
+		} {
+			if _, err := New(provider).MemberName(chat, 7); err == nil {
+				t.Fatalf("MemberName() with %+v error = nil, want error", provider.member)
+			}
+		}
+	})
+
+	t.Run("provider error and invalid input", func(t *testing.T) {
+		if _, err := New(&fakeProvider{err: errors.New("telegram down")}).MemberName(chat, 7); err == nil {
+			t.Fatal("MemberName() error = nil, want provider error")
+		}
+		if _, err := New(&fakeProvider{}).MemberName(chat, 0); err == nil {
+			t.Fatal("MemberName(user 0) error = nil")
+		}
+		var resolver *Resolver
+		if _, err := resolver.MemberName(chat, 7); err == nil {
+			t.Fatal("nil resolver MemberName() error = nil")
+		}
+	})
+}
+
 func TestResolverInGroup(t *testing.T) {
 	chat := &telebot.Chat{ID: -100, Type: telebot.ChatSuperGroup}
 	other := &telebot.Chat{ID: -200, Type: telebot.ChatSuperGroup}

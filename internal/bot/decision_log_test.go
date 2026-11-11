@@ -22,6 +22,9 @@ type capturedDecision struct {
 	MsgType        string   `json:"msg_type"`
 	Decision       string   `json:"decision"`
 	UserID         int64    `json:"user_id"`
+	OriginType     string   `json:"origin_type"`
+	OriginDate     int64    `json:"origin_date"`
+	Reason         string   `json:"reason"`
 	KeyHash        string   `json:"key_hash"`
 	PresentFields  []string `json:"present_fields"`
 	RichBlockTypes []string `json:"rich_block_types"`

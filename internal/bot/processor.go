@@ -139,6 +139,7 @@ func (p *Processor) processMessage(msg *telebot.Message, traceID string, reply f
 		rec.set(DecisionProcessingError)
 		return err
 	}
+	rec.setReason(content.CitationReason)
 	if content.Key == "" {
 		if content.SkipDecision != "" {
 			rec.set(content.SkipDecision)
