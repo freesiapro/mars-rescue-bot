@@ -161,15 +161,15 @@ func TestFormatChangelogChunks(t *testing.T) {
 		}
 		for _, wantText := range []string{
 			"📣 最近 3 次更新",
+			"2026-11-12 · 隐藏来源的本群消息转发也能识别",
 			"2026-11-10 · 新增 /changelog 命令",
 			"2026-11-09 · 本群消息的再次转发与相同回复不再记录",
-			"2026-11-07 · 提醒和 /hyw 的说明更易读",
 		} {
 			if !strings.Contains(got, wantText) {
 				t.Errorf("formatChangelogChunks(3) = %q, want containing %q", got, wantText)
 			}
 		}
-		if strings.Contains(got, "2026-11-06") {
+		if strings.Contains(got, "2026-11-07") {
 			t.Errorf("formatChangelogChunks(3) = %q, should stop after three entries", got)
 		}
 	})
@@ -199,8 +199,8 @@ func TestFormatChangelogChunks(t *testing.T) {
 		}
 		for _, wantText := range []string{
 			"一次最多显示 10 条，以下为最近的更新：",
-			"📣 最近 6 次更新",
-			"2026-11-10 · 新增 /changelog 命令",
+			"📣 最近 7 次更新",
+			"2026-11-12 · 隐藏来源的本群消息转发也能识别",
 			"2026-11-04 · 富文本、连续刷屏、普通转发与 /hyw",
 		} {
 			if !strings.Contains(got, wantText) {
@@ -319,25 +319,25 @@ func TestHandleChangelog(t *testing.T) {
 		{
 			name:       "default",
 			args:       nil,
-			wantText:   []string{"📣 最近 1 次更新", "2026-11-10 · 新增 /changelog 命令", "发送 /changelog 可查看最近的更新，默认显示最近 1 条。"},
-			absentText: []string{"2026-11-09", "一次最多显示 10 条，以下为最近的更新："},
+			wantText:   []string{"📣 最近 1 次更新", "2026-11-12 · 隐藏来源的本群消息转发也能识别", "转发时隐藏了来源账号、但内容其实来自本群的消息，现在也能识别；对得上本群已有记录就跳过，不提醒、不记录，也不计入火星次数。"},
+			absentText: []string{"2026-11-10", "一次最多显示 10 条，以下为最近的更新："},
 		},
 		{
 			name:       "three",
 			args:       []string{"3"},
-			wantText:   []string{"📣 最近 3 次更新", "2026-11-09", "2026-11-07"},
-			absentText: []string{"2026-11-06", "一次最多显示 10 条，以下为最近的更新："},
+			wantText:   []string{"📣 最近 3 次更新", "2026-11-12", "2026-11-10", "2026-11-09"},
+			absentText: []string{"2026-11-07", "一次最多显示 10 条，以下为最近的更新："},
 		},
 		{
 			name:       "exact max has no cap notice",
 			args:       []string{"10"},
-			wantText:   []string{"📣 最近 6 次更新", "2026-11-04"},
+			wantText:   []string{"📣 最近 7 次更新", "2026-11-04"},
 			absentText: []string{"一次最多显示 10 条，以下为最近的更新："},
 		},
 		{
 			name:     "over max",
 			args:     []string{"99"},
-			wantText: []string{"一次最多显示 10 条，以下为最近的更新：", "📣 最近 6 次更新"},
+			wantText: []string{"一次最多显示 10 条，以下为最近的更新：", "📣 最近 7 次更新"},
 		},
 		{
 			name:        "invalid",

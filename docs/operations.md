@@ -16,7 +16,7 @@
 
 不保存：消息原文、链接原文、媒体文件内容、文件下载链接。媒体消息只保存不可逆的 `file_unique_id` 用于去重；纯链接消息只保存 HMAC 内容键。机器人不保存原始消息 JSON；`present_fields` / `rich_block_types` 来自 telebot 已解析的 `Message` 结构，只包含字段名和块类型，不包含字段值或正文。
 
-运行日志以 JSON 输出到 stdout，包含群 ID、用户 ID、消息 ID、消息类型等元数据，不包含用户名或消息正文。
+运行日志以 JSON 输出到 stdout，包含群 ID、用户 ID、消息 ID、消息类型等元数据，不包含用户名或消息正文。`收到消息` 日志对转发额外输出 `forward_origin`（`user`、`chat`、`channel`、`hidden_user` 或空）、`has_sender_name`（布尔值，仅表示有没有姓名，不输出姓名本身）；有原发送者 ID 时输出 `origin_user_id`，有原发送时间时输出 `origin_date`（Unix 秒）。
 
 ## 去重决策日志
 
@@ -29,6 +29,9 @@
 | `msg_type` | `channel_forward`、`rich_message`、`text`、`link`、`photo`、`video`、`animation`、`document`、`audio`、`sticker`、`voice`、`location`、`contact`、`caption` 或 `unknown`；频道转发优先于原始内容类型 |
 | `decision` | 本次处理结果，取值见下表 |
 | `user_id` | 发送者 ID，与 `收到消息` 日志一致；缺少发送者时为 0 |
+| `origin_type` | 可选。消息带新版 `forward_origin` 时输出来源类型：`user`、`chat`、`channel` 或 `hidden_user` |
+| `origin_date` | 可选。随 `origin_type` 输出：转发来源里的原发送时间（Unix 秒）；没有时为 0 |
+| `reason` | 可选。引用豁免的判定结果：命中时是豁免原因，未命中时是没豁免的原因，取值见下文 |
 | `key_hash` | 可选。内容键的 8 位十六进制短指纹；没有内容键时省略 |
 | `present_fields` | 可选。仅 `no_content` / `unsupported_type` 时输出：消息中非空顶层字段名（排序、去重；`null`、空字符串、空数组/对象、`false`、`0` 不计），不包含字段值和正文。使用 telebot 解析后的 `Message` 结构，看不到 telebot 未建模的字段；富文本路由用的空白占位 `text` 会被排除 |
 | `rich_block_types` | 可选。仅当消息带 `rich_message` 且决策为 `no_content` / `unsupported_type` 时输出：块树中出现过的 `type` 名称（排序、去重，含嵌套块），不包含任何文本 |
@@ -43,7 +46,7 @@
 | `short_text_skipped` | 归一化后有效字符少于 10 个的文本，或纯表情/符号；纯链接走链接键，不会命中该分支 |
 | `repeated_char_skipped` | 归一化后所有字符都相同（如“哈哈哈哈哈哈哈哈哈哈”“6666666666”） |
 | `mention_only` | 去掉 @ 提及（`mention` / `text_mention` 实体或文本中的 `@username`）后只剩空白、标点或符号；对所有来源（含频道转发）生效，不检测、不记录、不参与配对 |
-| `citation_skipped` | 用户转发的原作者和时间对上本群某次已记录出现（容差 2 秒）；`sender_chat` 为本群且时间对得上，或没有可比较的时间；以及回复的内容键与被回复消息相同。不记录、不提醒、不进排行。作者或时间对不上则不跳过。旧流水没有 `message_unix` 时，才退回“原作者仍在本群”。`hidden_user` 不跳过。频道转发（含自动转发）不会命中 |
+| `citation_skipped` | 引用豁免：用户转发的原作者和时间对上本群某次已记录出现（容差 2 秒）；`sender_chat` 为本群且时间对得上，或没有可比较的时间；隐藏来源的转发对上带消息时间的流水（时间完全相等），或对上插入时间在原消息后 60 秒内且发送者当前显示名一致的旧流水；以及回复的内容键与被回复消息相同。不记录、不提醒、不进排行。频道转发（含自动转发）不会命中 |
 | `bot_ignored` | 发送者本身是 bot |
 | `forward_from_bot_ignored` | 保留值，当前不可达：只有发送者是 bot 才会被忽略。人类转发 bot 内容时与其他用户转发一样，按原作者和时间判断 |
 | `ignored_user` | 发送者在忽略名单中 |
@@ -56,6 +59,8 @@
 | `unsupported_type` | 音频、贴纸、语音、位置、联系人，或没有任何可提取文本的富文本消息等未参与检测的内容。日志会附带 `present_fields`，富文本消息还会附带 `rich_block_types` |
 | `no_message` / `no_chat` / `no_sender` | Telegram 更新缺少消息、chat 或发送者，安全跳过 |
 | `processing_error` | 读取设置、忽略名单或写入去重数据时出错；原有错误日志仍会输出 |
+
+`reason` 在消息进入引用判断时出现，普通消息通常没有。命中豁免时取值 `author_time`（用户来源：原作者 ID 和时间对上）、`member_fallback`（用户来源：旧流水没有消息时间，原作者仍在本群）、`chat_time`（本群来源：时间对上）、`chat_no_timed_log`（本群来源：没有可比较的时间）、`hidden_exact_time`（隐藏来源：消息时间完全相等）、`hidden_legacy_window`（隐藏来源：旧流水插入时间在窗口内且显示名一致）、`reply_same_key`（回复的内容与被回复消息相同，不要求是转发）。未命中时取值 `no_record`、`no_timed_match`、`member_lookup_failed`、`not_in_group`、`hidden_name_mismatch`、`hidden_outside_window` 或 `origin_not_candidate`。成员或姓名查询失败时还会输出一条 WARN 日志，包含 `chat_id`、`user_id` 和 `error`，不包含姓名。
 
 ## 数据保留与清理
 

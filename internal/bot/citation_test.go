@@ -17,6 +17,7 @@ const citeText = "hello mars bot"
 
 type roleMembers struct {
 	role  telebot.MemberStatus
+	user  *telebot.User
 	err   error
 	calls int
 }
@@ -26,7 +27,7 @@ func (m *roleMembers) ChatMemberOf(telebot.Recipient, telebot.Recipient) (*teleb
 	if m.err != nil {
 		return nil, m.err
 	}
-	return &telebot.ChatMember{Role: m.role}, nil
+	return &telebot.ChatMember{Role: m.role, User: m.user}, nil
 }
 
 func setupCitation(t *testing.T, members names.MemberProvider) (*Processor, *repo.Repo, *gorm.DB) {

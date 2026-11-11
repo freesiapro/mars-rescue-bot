@@ -50,14 +50,17 @@ func LogMessageReceived(traceID string, msg *telebot.Message) {
 		userID = msg.Sender.ID
 	}
 
-	// 判断消息类型，丰富日志信息
+	// 判断消息类型，丰富日志信息。
+	// 新版 forward_origin（Message.Origin）不一定填旧版 forward_from 字段，
+	// 因此 IsForwarded() 之外还要看 Origin，否则隐藏来源等转发会被记成普通消息。
+	forwarded := msg.IsForwarded() || msg.Origin != nil
 	msgType := "text"
 	switch {
 	case msg.RichMessage != nil:
 		// 富文本消息也可能是转发；类型上仍优先标成 rich_message，
 		// forward 字段会单独说明转发来源。
 		msgType = "rich_message"
-	case msg.IsForwarded():
+	case forwarded:
 		msgType = "forward"
 	case msg.Photo != nil:
 		msgType = "photo"
@@ -84,7 +87,24 @@ func LogMessageReceived(traceID string, msg *telebot.Message) {
 		forwardInfo = string(msg.OriginalChat.Type)
 	}
 
-	slog.Info("收到消息",
+	// 新版 forward_origin 的细分来源：user / chat / channel / hidden_user。
+	// 旧版字段没有 Origin 时留空，仍由上面的 forward 字段说明来源类型。
+	forwardOrigin := ""
+	originUserID := int64(0)
+	originDate := int64(0)
+	hasSenderName := msg.OriginalSenderName != ""
+	if msg.Origin != nil {
+		forwardOrigin = msg.Origin.Type
+		if msg.Origin.Sender != nil && msg.Origin.Sender.ID > 0 {
+			originUserID = msg.Origin.Sender.ID
+		}
+		originDate = msg.Origin.DateUnixtime
+		if msg.Origin.SenderUsername != "" {
+			hasSenderName = true
+		}
+	}
+
+	attrs := []any{
 		"trace_id", traceID,
 		"chat_id", chatID,
 		"chat_type", chatType,
@@ -92,8 +112,17 @@ func LogMessageReceived(traceID string, msg *telebot.Message) {
 		"message_id", msg.ID,
 		"msg_type", msgType,
 		"forward", forwardInfo,
+		"forward_origin", forwardOrigin,
+		"has_sender_name", hasSenderName,
 		"is_edited", msg.LastEdit != 0,
-	)
+	}
+	if originUserID > 0 {
+		attrs = append(attrs, "origin_user_id", originUserID)
+	}
+	if originDate > 0 {
+		attrs = append(attrs, "origin_date", originDate)
+	}
+	slog.Info("收到消息", attrs...)
 }
 
 func logUpdateReceived(traceID string, c telebot.Context) {
