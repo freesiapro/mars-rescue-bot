@@ -311,7 +311,7 @@ func TestAnalyzeMessageContentMentionWithContentStillDetected(t *testing.T) {
 		{
 			name: "mention plus text",
 			msg: func(t *testing.T) *telebot.Message {
-				msg := mentionTextMessage("@Alice 今天天气不错", 621)
+				msg := mentionTextMessage("@Alice 今天天气不错很适合出门", 621)
 				addEntity(msg, telebot.EntityMention, "@Alice")
 				return msg
 			},
@@ -319,7 +319,7 @@ func TestAnalyzeMessageContentMentionWithContentStillDetected(t *testing.T) {
 		{
 			name: "mention plus latin text",
 			msg: func(t *testing.T) *telebot.Message {
-				msg := mentionTextMessage("@Bob hello mars", 622)
+				msg := mentionTextMessage("@Bob hello mars bot please respond", 622)
 				addEntity(msg, telebot.EntityMention, "@Bob")
 				return msg
 			},
@@ -327,7 +327,7 @@ func TestAnalyzeMessageContentMentionWithContentStillDetected(t *testing.T) {
 		{
 			name: "text_mention plus text",
 			msg: func(t *testing.T) *telebot.Message {
-				msg := mentionTextMessage("Bob hello mars", 623)
+				msg := mentionTextMessage("Bob hello mars bot please respond", 623)
 				addEntity(msg, telebot.EntityTMention, "Bob")
 				return msg
 			},
@@ -335,7 +335,7 @@ func TestAnalyzeMessageContentMentionWithContentStillDetected(t *testing.T) {
 		{
 			name: "email is not a mention",
 			msg: func(t *testing.T) *telebot.Message {
-				return mentionTextMessage("foo@bar.com hello mars", 624)
+				return mentionTextMessage("foo@bar.com hello mars bot please respond", 624)
 			},
 		},
 		{
@@ -346,7 +346,7 @@ func TestAnalyzeMessageContentMentionWithContentStillDetected(t *testing.T) {
 					"rich_message": {"blocks": [
 						{"type": "paragraph", "text": [
 							{"type": "mention", "username": "Bob"},
-							" hello mars bot"
+							" hello mars bot please respond"
 						]}
 					]}
 				}`)
@@ -373,11 +373,11 @@ func TestAnalyzeMessageContentMentionWithContentStillDetected(t *testing.T) {
 
 // 提及部分继续参与内容键：这与本次改动前的行为一致。
 func TestAnalyzeMessageContentMentionStaysInContentKey(t *testing.T) {
-	msg := mentionTextMessage("@Bob hello mars", 631)
+	msg := mentionTextMessage("@Bob hello mars bot please respond", 631)
 	addEntity(msg, telebot.EntityMention, "@Bob")
 
 	content := AnalyzeMessageContent(msg, contentTestSecret)
-	if want := textKeyFor(contentTestSecret, "@Bob hello mars"); content.Key != want {
+	if want := textKeyFor(contentTestSecret, "@Bob hello mars bot please respond"); content.Key != want {
 		t.Errorf("key = %q, want %q (mention must stay in the key)", content.Key, want)
 	}
 }

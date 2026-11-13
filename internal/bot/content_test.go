@@ -142,7 +142,7 @@ func TestAnalyzeMessageContentRichMediaCaption(t *testing.T) {
 		"message_id": 43,
 		"rich_message": {
 			"blocks": [
-				{"type": "photo", "photo": [{"file_id": "small", "file_unique_id": "photo-small"}, {"file_id": "large", "file_unique_id": "photo-large"}], "caption": {"text": [{"type": "bold", "text": "captioned"}, " ", {"type": "italic", "text": "photo"}]}}
+				{"type": "photo", "photo": [{"file_id": "small", "file_unique_id": "photo-small"}, {"file_id": "large", "file_unique_id": "photo-large"}], "caption": {"text": [{"type": "bold", "text": "captioned"}, " ", {"type": "italic", "text": "photo in rich text"}]}}
 			]
 		}
 	}`
@@ -159,7 +159,7 @@ func TestAnalyzeMessageContentRichMediaCaption(t *testing.T) {
 		t.Errorf("content = %+v, want rich captions deduped as text", content)
 	}
 
-	plain := textMessage(testChatID, 1, "A", "captioned photo", 10)
+	plain := textMessage(testChatID, 1, "A", "captioned photo in rich text", 10)
 	plainContent := AnalyzeMessageContent(plain, contentTestSecret)
 	if content.Key != plainContent.Key {
 		t.Errorf("rich caption key = %q, want plain text key %q", content.Key, plainContent.Key)
@@ -201,6 +201,52 @@ func TestAnalyzeMessageContentRichMessageWithoutText(t *testing.T) {
 	}
 	if content.SkipDecision != DecisionUnsupportedType {
 		t.Errorf("decision = %q, want %q", content.SkipDecision, DecisionUnsupportedType)
+	}
+}
+
+func TestAnalyzeMessageContentContentScoreThreshold(t *testing.T) {
+	tests := []struct {
+		name     string
+		text     string
+		wantSkip string
+		wantKey  bool
+		wantKind string
+	}{
+		{name: "emoji decorated two words", text: "Product ⬆️ Engineer", wantSkip: DecisionShortTextSkipped},
+		{name: "thanks a lot", text: "Thanks a lot", wantSkip: DecisionShortTextSkipped},
+		{name: "good morning everyone", text: "Good morning everyone", wantSkip: DecisionShortTextSkipped},
+		{name: "i agree with you", text: "I agree with you", wantSkip: DecisionShortTextSkipped},
+		{name: "five latin words", text: "Please review this pull request", wantKey: true, wantKind: "text"},
+		{name: "nine chinese characters", text: "这个方案还要再讨论", wantSkip: DecisionShortTextSkipped},
+		{name: "ten chinese characters", text: "这个方案还需要再讨论", wantKey: true, wantKind: "text"},
+		{name: "mixed reaches ten", text: "明天 meeting 改到下午三点", wantKey: true, wantKind: "text"},
+		{name: "mixed below ten", text: "看下 documentation 谢谢", wantSkip: DecisionShortTextSkipped},
+		{name: "price is four words", text: "100 USD per month", wantSkip: DecisionShortTextSkipped},
+		{name: "mention plus short content", text: "@Alice 今天天气不错", wantSkip: DecisionShortTextSkipped},
+		{name: "pure link", text: "https://example.com/a/b", wantKey: true, wantKind: "link"},
+		{name: "pure emoji", text: "🚀🚀🚀", wantSkip: DecisionNoContent},
+		{name: "repeated single rune", text: "哈哈哈哈哈哈哈哈哈哈", wantSkip: DecisionRepeatedCharSkipped},
+		{name: "long cyrillic", text: "привет мир как", wantKey: true, wantKind: "text"},
+		{name: "short cyrillic", text: "привет мир", wantSkip: DecisionShortTextSkipped},
+		{name: "long arabic", text: "مرحبا بالعالم", wantKey: true, wantKind: "text"},
+		{name: "short arabic", text: "مرحبا", wantSkip: DecisionShortTextSkipped},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			content := AnalyzeMessageContent(textMessage(testChatID, 1, "A", tt.text, 10), contentTestSecret)
+			if content.SkipDecision != tt.wantSkip {
+				t.Errorf("SkipDecision = %q, want %q (content = %+v)", content.SkipDecision, tt.wantSkip, content)
+			}
+			if tt.wantSkip != "" && content.Key != "" {
+				t.Errorf("Key = %q, want empty for skipped text", content.Key)
+			}
+			if tt.wantKey && content.Key == "" {
+				t.Errorf("Key is empty, want a content key (content = %+v)", content)
+			}
+			if tt.wantKind != "" && content.Kind != tt.wantKind {
+				t.Errorf("Kind = %q, want %q", content.Kind, tt.wantKind)
+			}
+		})
 	}
 }
 
