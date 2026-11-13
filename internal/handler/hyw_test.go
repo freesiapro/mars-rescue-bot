@@ -278,8 +278,8 @@ func TestHYWNoContentIncludesPresentFields(t *testing.T) {
 
 func TestHYWRecordedText(t *testing.T) {
 	h, r, _ := setupHYW(t)
-	first := hywTextMessage(hywTestChatID, 1, "hyw recorded text", 10)
-	second := hywTextMessage(hywTestChatID, 2, "hyw recorded text", 16)
+	first := hywTextMessage(hywTestChatID, 1, "hyw recorded text please respond", 10)
+	second := hywTextMessage(hywTestChatID, 2, "hyw recorded text please respond", 16)
 	seedHYWMessage(t, r, first, 0)
 	seedHYWMessage(t, r, second, 0)
 
@@ -300,7 +300,7 @@ func TestHYWRecordedText(t *testing.T) {
 	if strings.Contains(reply, content.Hash) || strings.Contains(reply, "短码") || strings.Contains(reply, content.Key) {
 		t.Errorf("reply = %q, must not contain hash, short code, or full content key", reply)
 	}
-	if strings.Contains(reply, "hyw recorded text") {
+	if strings.Contains(reply, "hyw recorded text please respond") {
 		t.Errorf("reply = %q, must not contain message text", reply)
 	}
 	t.Logf("hyw reply: %s", reply)
@@ -334,13 +334,13 @@ func TestHYWRecordedPureLink(t *testing.T) {
 
 func TestHYWRecordedRichMessage(t *testing.T) {
 	h, r, _ := setupHYW(t)
-	plain := hywTextMessage(hywTestChatID, 1, "hyw rich text", 10)
+	plain := hywTextMessage(hywTestChatID, 1, "hyw rich text please respond", 10)
 	rich := hywTextMessage(hywTestChatID, 2, "", 16)
 	const richJSON = `{
 		"message_id": 16,
 		"rich_message": {
 			"blocks": [
-				{"type": "paragraph", "text": [{"type": "bold", "text": "hyw rich"}, " ", {"type": "italic", "text": "text"}]}
+				{"type": "paragraph", "text": [{"type": "bold", "text": "hyw rich text"}, " ", {"type": "italic", "text": "please respond"}]}
 			]
 		}
 	}`
@@ -366,7 +366,7 @@ func TestHYWRecordedRichMessage(t *testing.T) {
 	if content.Key != plainContent.Key {
 		t.Errorf("rich key = %q, want plain key %q", content.Key, plainContent.Key)
 	}
-	if strings.Contains(reply, content.Hash) || strings.Contains(reply, "短码") || strings.Contains(reply, content.Key) || strings.Contains(reply, "hyw rich text") {
+	if strings.Contains(reply, content.Hash) || strings.Contains(reply, "短码") || strings.Contains(reply, content.Key) || strings.Contains(reply, "hyw rich text please respond") {
 		t.Errorf("reply = %q, must not contain full key or message text", reply)
 	}
 	t.Logf("hyw rich reply: %s", reply)
@@ -374,8 +374,8 @@ func TestHYWRecordedRichMessage(t *testing.T) {
 
 func TestHYWFirstOccurrenceDecision(t *testing.T) {
 	h, r, _ := setupHYW(t)
-	first := hywTextMessage(hywTestChatID, 1, "hyw first occurrence", 10)
-	second := hywTextMessage(hywTestChatID, 2, "hyw first occurrence", 16)
+	first := hywTextMessage(hywTestChatID, 1, "hyw first occurrence please respond", 10)
+	second := hywTextMessage(hywTestChatID, 2, "hyw first occurrence please respond", 16)
 	seedHYWMessage(t, r, first, 0)
 	seedHYWMessage(t, r, second, 0)
 
@@ -388,8 +388,8 @@ func TestHYWFirstOccurrenceDecision(t *testing.T) {
 
 func TestHYWAdjacentDecision(t *testing.T) {
 	h, r, _ := setupHYW(t)
-	first := hywTextMessage(hywTestChatID, 1, "hyw adjacent text", 10)
-	second := hywTextMessage(hywTestChatID, 2, "hyw adjacent text", 15)
+	first := hywTextMessage(hywTestChatID, 1, "hyw adjacent text please respond", 10)
+	second := hywTextMessage(hywTestChatID, 2, "hyw adjacent text please respond", 15)
 	seedHYWMessage(t, r, first, 0)
 	seedHYWMessage(t, r, second, bot.AdjacentRepeatGap)
 
@@ -448,7 +448,7 @@ func TestHYWRecordedChannelForward(t *testing.T) {
 
 func TestHYWUnknownDecisionDoesNotFabricate(t *testing.T) {
 	h, r, _ := setupHYW(t)
-	base := hywTextMessage(hywTestChatID, 1, "hyw cooldown text", 10)
+	base := hywTextMessage(hywTestChatID, 1, "hyw cooldown text please respond", 10)
 	content := bot.AnalyzeMessageContent(base, hywTestSecret)
 	if err := r.UpsertUserStats(base.Sender.ID); err != nil {
 		t.Fatalf("UpsertUserStats() error = %v", err)
@@ -467,7 +467,7 @@ func TestHYWUnknownDecisionDoesNotFabricate(t *testing.T) {
 		{22, 3},
 		{28, 4},
 	} {
-		msg := hywTextMessage(hywTestChatID, item.userID, "hyw cooldown text", item.msgID)
+		msg := hywTextMessage(hywTestChatID, item.userID, "hyw cooldown text please respond", item.msgID)
 		record, _, err := r.FindOrCreateRecord(hywTestChatID, content.Key, msg.ID, msg.Sender.ID, msg.Unixtime)
 		if err != nil {
 			t.Fatalf("FindOrCreateRecord(msg %d) error = %v", msg.ID, err)
@@ -483,7 +483,7 @@ func TestHYWUnknownDecisionDoesNotFabricate(t *testing.T) {
 		}
 	}
 
-	ctx, _ := runHYW(t, h, hywTestChatID, hywTextMessage(hywTestChatID, 4, "hyw cooldown text", 28))
+	ctx, _ := runHYW(t, h, hywTestChatID, hywTextMessage(hywTestChatID, 4, "hyw cooldown text please respond", 28))
 	reply := assertHYWReplyToTarget(t, ctx, ctx.msg.ReplyTo)
 	if !strings.Contains(reply, "看不出来") {
 		t.Errorf("reply = %q, want honest unknown decision", reply)
@@ -496,7 +496,7 @@ func TestHYWUnknownDecisionDoesNotFabricate(t *testing.T) {
 
 func TestHYWNotRecorded(t *testing.T) {
 	h, _, _ := setupHYW(t)
-	target := hywTextMessage(hywTestChatID, 1, "hyw never recorded", 10)
+	target := hywTextMessage(hywTestChatID, 1, "hyw never recorded please respond", 10)
 
 	ctx, _ := runHYW(t, h, hywTestChatID, target)
 	reply := assertHYWReplyToTarget(t, ctx, target)
@@ -539,10 +539,10 @@ func TestHYWCitationSkippedUsesSameRule(t *testing.T) {
 		provider := &hywMemberProvider{role: telebot.Left}
 		h.names = names.New(provider)
 		const sentAt = int64(1_700_000_000)
-		original := hywTextMessage(hywTestChatID, 8001, "hello mars bot", 9)
+		original := hywTextMessage(hywTestChatID, 8001, "hello mars bot please respond", 9)
 		original.Unixtime = sentAt
 		seedHYWMessage(t, r, original, 0)
-		target := hywTextMessage(hywTestChatID, 8002, "hello mars bot", 10)
+		target := hywTextMessage(hywTestChatID, 8002, "hello mars bot please respond", 10)
 		target.Origin = &telebot.MessageOrigin{
 			Type:         "user",
 			DateUnixtime: sentAt,
@@ -565,8 +565,8 @@ func TestHYWCitationSkippedUsesSameRule(t *testing.T) {
 		h, r, _ := setupHYW(t)
 		provider := &hywMemberProvider{role: telebot.Member}
 		h.names = names.New(provider)
-		seedHYWMessage(t, r, hywTextMessage(hywTestChatID, 8001, "hello mars bot", 9), 0)
-		target := hywTextMessage(hywTestChatID, 8002, "hello mars bot", 10)
+		seedHYWMessage(t, r, hywTextMessage(hywTestChatID, 8001, "hello mars bot please respond", 9), 0)
+		target := hywTextMessage(hywTestChatID, 8002, "hello mars bot please respond", 10)
 		target.Origin = &telebot.MessageOrigin{
 			Type:         "user",
 			DateUnixtime: 1_700_000_000,
@@ -584,10 +584,10 @@ func TestHYWCitationSkippedUsesSameRule(t *testing.T) {
 
 	t.Run("reply pastes the same text", func(t *testing.T) {
 		h, _, _ := setupHYW(t)
-		original := hywTextMessage(hywTestChatID, 8001, "hello mars bot", 10)
-		target := hywTextMessage(hywTestChatID, 8002, "Hello, MARS bot", 11)
+		original := hywTextMessage(hywTestChatID, 8001, "hello mars bot please respond", 10)
+		target := hywTextMessage(hywTestChatID, 8002, "Hello, MARS bot please respond", 11)
 		target.ReplyTo = original
-		target.Quote = &telebot.TextQuote{Text: "hello mars bot", Manual: true}
+		target.Quote = &telebot.TextQuote{Text: "hello mars bot please respond", Manual: true}
 		ctx, _ := runHYW(t, h, hywTestChatID, target)
 		reply := assertHYWReplyToTarget(t, ctx, target)
 		if reply != want {
@@ -597,10 +597,10 @@ func TestHYWCitationSkippedUsesSameRule(t *testing.T) {
 
 	t.Run("quote with a new body is not a citation skip", func(t *testing.T) {
 		h, _, _ := setupHYW(t)
-		original := hywTextMessage(hywTestChatID, 8001, "hello mars bot", 10)
-		target := hywTextMessage(hywTestChatID, 8002, "a fresh comment here", 11)
+		original := hywTextMessage(hywTestChatID, 8001, "hello mars bot please respond", 10)
+		target := hywTextMessage(hywTestChatID, 8002, "a fresh comment here today", 11)
 		target.ReplyTo = original
-		target.Quote = &telebot.TextQuote{Text: "hello mars bot", Manual: true}
+		target.Quote = &telebot.TextQuote{Text: "hello mars bot please respond", Manual: true}
 		ctx, _ := runHYW(t, h, hywTestChatID, target)
 		reply := assertHYWReplyToTarget(t, ctx, target)
 		if !strings.Contains(reply, "没有这条内容的记录") {
@@ -631,8 +631,8 @@ func TestHYWPrivateChat(t *testing.T) {
 
 func TestHYWSameContentButThisMessageMissing(t *testing.T) {
 	h, r, _ := setupHYW(t)
-	seedHYWMessage(t, r, hywTextMessage(hywTestChatID, 1, "hyw partial text", 10), 0)
-	target := hywTextMessage(hywTestChatID, 2, "hyw partial text", 99)
+	seedHYWMessage(t, r, hywTextMessage(hywTestChatID, 1, "hyw partial text please respond", 10), 0)
+	target := hywTextMessage(hywTestChatID, 2, "hyw partial text please respond", 99)
 
 	ctx, _ := runHYW(t, h, hywTestChatID, target)
 	reply := assertHYWReplyToTarget(t, ctx, target)
@@ -646,7 +646,7 @@ func TestHYWSameContentButThisMessageMissing(t *testing.T) {
 
 func TestHYWReplyToBot(t *testing.T) {
 	h, _, _ := setupHYW(t)
-	target := hywTextMessage(hywTestChatID, 1, "bot content", 10)
+	target := hywTextMessage(hywTestChatID, 1, "bot content with enough words", 10)
 	target.Sender.IsBot = true
 
 	ctx, _ := runHYW(t, h, hywTestChatID, target)
@@ -767,10 +767,10 @@ func TestHYWSkipReasons(t *testing.T) {
 func TestHYWOnlyCurrentChat(t *testing.T) {
 	h, r, _ := setupHYW(t)
 	const otherChatID = int64(-100111222333)
-	other := hywTextMessage(otherChatID, 1, "hyw other chat", 10)
+	other := hywTextMessage(otherChatID, 1, "hyw other chat please respond", 10)
 	seedHYWMessage(t, r, other, 0)
 
-	target := hywTextMessage(hywTestChatID, 1, "hyw other chat", 10)
+	target := hywTextMessage(hywTestChatID, 1, "hyw other chat please respond", 10)
 	ctx, _ := runHYW(t, h, hywTestChatID, target)
 	reply := assertHYWReplyToTarget(t, ctx, target)
 	if !strings.Contains(reply, "没有这条内容的记录") {
@@ -781,7 +781,7 @@ func TestHYWOnlyCurrentChat(t *testing.T) {
 func TestHYWReadOnly(t *testing.T) {
 	h, r, db := setupHYW(t)
 	for i, msgID := range []int{10, 16, 22} {
-		seedHYWMessage(t, r, hywTextMessage(hywTestChatID, int64(i+1), "hyw read only", msgID), 0)
+		seedHYWMessage(t, r, hywTextMessage(hywTestChatID, int64(i+1), "hyw read only please respond", msgID), 0)
 	}
 
 	var before models.ForwardRecord
@@ -790,7 +790,7 @@ func TestHYWReadOnly(t *testing.T) {
 	}
 	countsBefore := tableCounts(t, db)
 
-	ctx, _ := runHYW(t, h, hywTestChatID, hywTextMessage(hywTestChatID, 1, "hyw read only", 10))
+	ctx, _ := runHYW(t, h, hywTestChatID, hywTextMessage(hywTestChatID, 1, "hyw read only please respond", 10))
 	assertHYWReplyToTarget(t, ctx, ctx.msg.ReplyTo)
 
 	var after models.ForwardRecord

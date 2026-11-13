@@ -13,8 +13,9 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// DefaultMinRunes 是文本参与去重所需的最小有效字符数（不含 URL、空白和标点）。
-const DefaultMinRunes = 10
+// DefaultMinScore 是文本参与去重所需的最小内容分。
+// 汉字/假名/韩文每字 1 分，拉丁单词每个 2 分，其他文字每字母 1 分；URL 不计分。
+const DefaultMinScore = 10
 
 var urlPattern = regexp.MustCompile(`(?i)https?://[^\s<>"']+`)
 
@@ -50,23 +51,64 @@ func Normalize(input string) string {
 	return collapseSpaces(strings.TrimSpace(b.String()))
 }
 
-// HasContent 报告归一化结果中是否至少有 minRunes 个非 URL 的字母或数字。
+// HasEnoughContent 报告归一化结果的内容分是否达到 DefaultMinScore。
 // 纯 URL、纯表情、纯标点都会返回 false。
-func HasContent(normalized string, minRunes int) bool {
-	if minRunes <= 0 {
-		return strings.TrimSpace(normalized) != ""
-	}
+func HasEnoughContent(normalized string) bool {
+	return ContentScore(normalized) >= DefaultMinScore
+}
+
+// ContentScore 返回归一化文本的内容分，计数前先去掉 URL。
+//   - 汉字、平假名、片假名、韩文：每个字 1 分；
+//   - 拉丁单词：由拉丁字母、数字和组合记号组成的连续 token，每个 2 分；
+//     单字母词和纯数字 token 都算一个单词；
+//   - 其他文字（西里尔、阿拉伯等）：每个字母 1 分，与旧版按字母计数的口径一致；
+//   - 空白、标点、符号、emoji 和组合记号本身不计分。
+func ContentScore(normalized string) int {
 	stripped := urlPattern.ReplaceAllString(normalized, " ")
-	count := 0
+	score := 0
+	inLatinWord := false
+	wordHasContent := false
+	flushWord := func() {
+		if inLatinWord && wordHasContent {
+			score += 2
+		}
+		inLatinWord = false
+		wordHasContent = false
+	}
+
 	for _, r := range stripped {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			count++
-			if count >= minRunes {
-				return true
-			}
+		switch {
+		case isCJK(r):
+			flushWord()
+			score++
+		case isLatinLetter(r):
+			inLatinWord = true
+			wordHasContent = true
+		case unicode.IsDigit(r):
+			inLatinWord = true
+			wordHasContent = true
+		case unicode.IsMark(r):
+			// 组合记号附着在前面的字符上，不单独计分。
+		case unicode.IsLetter(r):
+			flushWord()
+			score++
+		default:
+			flushWord()
 		}
 	}
-	return false
+	flushWord()
+	return score
+}
+
+func isCJK(r rune) bool {
+	return unicode.Is(unicode.Han, r) ||
+		unicode.Is(unicode.Hiragana, r) ||
+		unicode.Is(unicode.Katakana, r) ||
+		unicode.Is(unicode.Hangul, r)
+}
+
+func isLatinLetter(r rune) bool {
+	return unicode.IsLetter(r) && unicode.Is(unicode.Latin, r)
 }
 
 // IsRepeatedSingleRune 报告归一化文本是否由同一个字符重复组成。

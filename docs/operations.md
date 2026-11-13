@@ -43,8 +43,8 @@
 | `alerted` | 本次出现完成配对，且提醒发送成功 |
 | `paired_silent` | 新内容首次记录，或本次出现进入等待配对、不提醒 |
 | `adjacent_repeat_exempt` | 与上一次出现的 `message_id` 相差不超过 5，按连续刷屏只写流水、不提醒；除首次出现外仍计入排行榜 |
-| `short_text_skipped` | 归一化后有效字符少于 10 个的文本，或纯表情/符号；纯链接走链接键，不会命中该分支 |
-| `repeated_char_skipped` | 归一化后所有字符都相同（如“哈哈哈哈哈哈哈哈哈哈”“6666666666”） |
+| `short_text_skipped` | 归一化后内容分不足 10 分的文本（汉字、平假名、片假名、韩文每字 1 分，拉丁单词每个 2 分，其他文字每字母 1 分；URL 不计分）；纯链接走链接键，不会命中该分支 |
+| `repeated_char_skipped` | 归一化后所有字符都相同，且内容分已达到下限（如“哈哈哈哈哈哈哈哈哈哈”）；纯数字或纯字母的长串会先因内容分不足命中 `short_text_skipped` |
 | `mention_only` | 去掉 @ 提及（`mention` / `text_mention` 实体或文本中的 `@username`）后只剩空白、标点或符号；对所有来源（含频道转发）生效，不检测、不记录、不参与配对 |
 | `citation_skipped` | 引用豁免：用户转发的原作者和时间对上本群某次已记录出现（容差 2 秒）；`sender_chat` 为本群且时间对得上，或没有可比较的时间；隐藏来源的转发对上带消息时间的流水（时间完全相等），或对上插入时间在原消息后 60 秒内且发送者当前显示名一致的旧流水；以及回复的内容键与被回复消息相同。不记录、不提醒、不进排行。频道转发（含自动转发）不会命中 |
 | `bot_ignored` | 发送者本身是 bot |
@@ -53,7 +53,7 @@
 | `disabled_chat` | 本群检测已关闭 |
 | `cooldown_suppressed` | 配对提醒被群冷却抑制，配对状态已回滚 |
 | `send_failed_rolled_back` | 配对提醒发送失败，配对状态已回滚 |
-| `no_content` | 没有可检测内容：空文本、纯空白，或支持的媒体缺少 `file_unique_id`。日志会附带 `present_fields` |
+| `no_content` | 没有可检测内容：空文本、纯空白、归一化后为空的纯表情/符号，或支持的媒体缺少 `file_unique_id`。日志会附带 `present_fields` |
 | `private_chat` | 私聊消息，直接忽略 |
 | `command` | 以 `/` 开头的命令文本 |
 | `unsupported_type` | 音频、贴纸、语音、位置、联系人，或没有任何可提取文本的富文本消息等未参与检测的内容。日志会附带 `present_fields`，富文本消息还会附带 `rich_block_types` |

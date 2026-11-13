@@ -83,7 +83,7 @@ func TestDecisionLogSkipBranches(t *testing.T) {
 		{
 			name: "private_chat",
 			msg: func() *telebot.Message {
-				msg := textMessage(testChatID, 21, "Private", "private content", 22)
+				msg := textMessage(testChatID, 21, "Private", "private content stays out of here", 22)
 				msg.Chat.Type = telebot.ChatPrivate
 				return msg
 			},
@@ -102,7 +102,7 @@ func TestDecisionLogSkipBranches(t *testing.T) {
 		{
 			name: "bot_ignored",
 			msg: func() *telebot.Message {
-				msg := textMessage(testChatID, 31, "Bot", "from a bot", 24)
+				msg := textMessage(testChatID, 31, "Bot", "from a bot with enough words", 24)
 				msg.Sender.IsBot = true
 				return msg
 			},
@@ -119,7 +119,7 @@ func TestDecisionLogSkipBranches(t *testing.T) {
 				}
 			},
 			msg: func() *telebot.Message {
-				return textMessage(testChatID, 41, "Disabled", "disabled content", 25)
+				return textMessage(testChatID, 41, "Disabled", "disabled content should be ignored", 25)
 			},
 			want:     DecisionDisabledChat,
 			wantType: "text",
@@ -134,7 +134,7 @@ func TestDecisionLogSkipBranches(t *testing.T) {
 				}
 			},
 			msg: func() *telebot.Message {
-				return textMessage(testChatID, 51, "Ignored", "ignored content", 26)
+				return textMessage(testChatID, 51, "Ignored", "ignored content from ignored user", 26)
 			},
 			want:     DecisionIgnoredUser,
 			wantType: "text",
@@ -267,7 +267,7 @@ func TestDecisionLogRichMessage(t *testing.T) {
 	msg.RichMessage = &telebot.RichMessage{
 		Blocks: []telebot.RichBlock{{
 			Type: telebot.RichBlockParagraph,
-			Text: &telebot.RichText{Kind: telebot.RichTextPlain, Plain: "rich decision content"},
+			Text: &telebot.RichText{Kind: telebot.RichTextPlain, Plain: "rich decision content for this test"},
 		}},
 	}
 	buf := captureDecisionLog(t, p)
@@ -389,7 +389,7 @@ func TestDecisionLogRouting(t *testing.T) {
 		{200, DecisionPairedSilent},
 	}
 	for i, step := range steps {
-		msg := textMessage(testChatID, int64(i+1), "Routing", "routing content", step.messageID)
+		msg := textMessage(testChatID, int64(i+1), "Routing", "routing content across four steps", step.messageID)
 		if err := p.ProcessMessage(msg, "trace", replies.reply); err != nil {
 			t.Fatalf("ProcessMessage(msg %d) error = %v", step.messageID, err)
 		}
@@ -442,7 +442,7 @@ func TestDecisionLogCooldownSuppressed(t *testing.T) {
 		{13, DecisionCooldownSuppressed},
 	}
 	for i, step := range steps {
-		msg := textMessage(testChatID, int64(i+1), "Cooldown", "cooldown content", step.messageID)
+		msg := textMessage(testChatID, int64(i+1), "Cooldown", "cooldown content for this group", step.messageID)
 		if err := p.ProcessMessage(msg, "trace", replies.reply); err != nil {
 			t.Fatalf("ProcessMessage(msg %d) error = %v", step.messageID, err)
 		}
@@ -468,11 +468,11 @@ func TestDecisionLogSendFailedRolledBack(t *testing.T) {
 	buf := captureDecisionLog(t, p)
 	replies := &replyRecorder{}
 
-	if err := p.ProcessMessage(textMessage(testChatID, 1, "A", "retry me again", 10), "trace", replies.reply); err != nil {
+	if err := p.ProcessMessage(textMessage(testChatID, 1, "A", "retry me again after failure", 10), "trace", replies.reply); err != nil {
 		t.Fatalf("first ProcessMessage() error = %v", err)
 	}
 	sendErr := errors.New("telegram unavailable")
-	err := p.ProcessMessage(textMessage(testChatID, 2, "B", "retry me again", 11), "trace", func(string) error {
+	err := p.ProcessMessage(textMessage(testChatID, 2, "B", "retry me again after failure", 11), "trace", func(string) error {
 		return sendErr
 	})
 	if !errors.Is(err, sendErr) {
@@ -506,7 +506,7 @@ func TestDecisionLogProcessingError(t *testing.T) {
 		t.Fatalf("close database: %v", err)
 	}
 
-	err = p.ProcessMessage(textMessage(testChatID, 7, "Broken", "database down", 10), "trace", (&replyRecorder{}).reply)
+	err = p.ProcessMessage(textMessage(testChatID, 7, "Broken", "database down during processing now", 10), "trace", (&replyRecorder{}).reply)
 	if err == nil {
 		t.Fatal("ProcessMessage() error = nil, want database error")
 	}
@@ -648,9 +648,9 @@ func TestDecisionLogBotOriginForwardIsDeduped(t *testing.T) {
 	buf := captureDecisionLog(t, p)
 	replies := &replyRecorder{}
 
-	first := forwardedTextMessage(10, forwardingUserID, "bot origin forward")
+	first := forwardedTextMessage(10, forwardingUserID, "bot origin forward to this group")
 	first.OriginalSender = forwardOriginBotUser()
-	second := forwardedTextMessage(11, forwardingUserID+1, "bot origin forward")
+	second := forwardedTextMessage(11, forwardingUserID+1, "bot origin forward to this group")
 	second.OriginalSender = forwardOriginBotUser()
 	processForwardMessages(t, p, replies, first, second)
 
@@ -678,9 +678,9 @@ func TestDecisionLogExactlyOncePerMessage(t *testing.T) {
 	messages := []*telebot.Message{
 		textMessage(testChatID, 1, "A", "", 10),
 		textMessage(testChatID, 1, "A", "/start", 11),
-		textMessage(testChatID, 1, "A", "exactly once content", 12),
-		textMessage(testChatID, 2, "B", "exactly once content", 13),
-		textMessage(testChatID, 3, "C", "exactly once content", 14),
+		textMessage(testChatID, 1, "A", "exactly once content per message", 12),
+		textMessage(testChatID, 2, "B", "exactly once content per message", 13),
+		textMessage(testChatID, 3, "C", "exactly once content per message", 14),
 		botMsg,
 		nil,
 	}

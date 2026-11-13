@@ -56,7 +56,7 @@ func fingerprintMessage(msg *telebot.Message, secret string) MessageContent {
 	// 会先拿到 channel 键并入库。带媒体（含富文本媒体块）的消息不是“纯 @”，
 	// 跳过本分支，按原有频道/媒体规则处理。
 	// 有其它实际内容的消息仍走原规则，提及部分继续参与内容键（不在这里剔除），
-	// 避免 "@Alice 今天天气不错" 因为去掉提及而跌破 10 字符下限被误跳过。
+	// 避免因为去掉提及而改变内容键或内容分。
 	if !messageHasNonTextPayload(msg) && messageMentionOnly(msg) {
 		return MessageContent{SkipDecision: DecisionMentionOnly}
 	}
@@ -97,8 +97,8 @@ func fingerprintMessage(msg *telebot.Message, secret string) MessageContent {
 		return MessageContent{SkipDecision: DecisionNoContent}
 	}
 
-	// 纯链接消息单独使用链接键。它没有“普通文字”，不能走 10 字符下限，
-	// 否则 URL 会在 HasContent 里被剥掉而误判为太短。
+	// 纯链接消息单独使用链接键。它没有“普通文字”，不能走文本内容分下限，
+	// 否则 URL 会在内容分计算里被剥掉而误判为太短。
 	if urls, ok := messageLinkURLs(msg); ok {
 		key := linkContentKey(secret, urls)
 		return MessageContent{
@@ -113,7 +113,7 @@ func fingerprintMessage(msg *telebot.Message, secret string) MessageContent {
 	if normalized == "" {
 		return MessageContent{SkipDecision: DecisionNoContent}
 	}
-	if !textnorm.HasContent(normalized, textnorm.DefaultMinRunes) {
+	if !textnorm.HasEnoughContent(normalized) {
 		return MessageContent{SkipDecision: DecisionShortTextSkipped}
 	}
 	if textnorm.IsRepeatedSingleRune(normalized) {

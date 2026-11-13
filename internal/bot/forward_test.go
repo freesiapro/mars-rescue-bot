@@ -62,8 +62,8 @@ func TestForwardedBotTextTwiceAlerts(t *testing.T) {
 			p, _, db := setupProcessor(t)
 			rec := &replyRecorder{}
 
-			first := forwardedTextMessage(10, forwardingUserID, "bot notice text")
-			second := forwardedTextMessage(11, forwardingUserID+1, "bot notice text")
+			first := forwardedTextMessage(10, forwardingUserID, "bot notice text for this group")
+			second := forwardedTextMessage(11, forwardingUserID+1, "bot notice text for this group")
 			tt.apply(first)
 			tt.apply(second)
 			processForwardMessages(t, p, rec, first, second)
@@ -79,7 +79,7 @@ func TestForwardedBotTextTwiceAlerts(t *testing.T) {
 			if err := db.First(&record).Error; err != nil {
 				t.Fatalf("load record: %v", err)
 			}
-			wantKey := textKeyFor(p.dedupSecret, "bot notice text")
+			wantKey := textKeyFor(p.dedupSecret, "bot notice text for this group")
 			if record.ContentKey != wantKey {
 				t.Errorf("ContentKey = %q, want %q (same key as hand-typed text)", record.ContentKey, wantKey)
 			}
@@ -149,10 +149,10 @@ func TestForwarderBotIsIgnored(t *testing.T) {
 	p, _, db := setupProcessor(t)
 	rec := &replyRecorder{}
 
-	first := forwardedTextMessage(10, forwardOriginBot, "forwarded by a bot")
+	first := forwardedTextMessage(10, forwardOriginBot, "forwarded by a bot with words")
 	first.Sender.IsBot = true
 	first.OriginalSender = &telebot.User{ID: 42, FirstName: "Human"}
-	second := forwardedTextMessage(11, forwardOriginBot, "forwarded by a bot")
+	second := forwardedTextMessage(11, forwardOriginBot, "forwarded by a bot with words")
 	second.Sender.IsBot = true
 	second.OriginalSender = &telebot.User{ID: 42, FirstName: "Human"}
 	processForwardMessages(t, p, rec, first, second)
@@ -173,9 +173,9 @@ func TestForwardedAndHandTypedTextShareKey(t *testing.T) {
 	p, _, db := setupProcessor(t)
 	rec := &replyRecorder{}
 
-	forwarded := forwardedTextMessage(10, forwardingUserID, "same content")
+	forwarded := forwardedTextMessage(10, forwardingUserID, "same content forwarded and typed")
 	forwarded.OriginalSender = forwardOriginBotUser()
-	handTyped := textMessage(testChatID, forwardingUserID+1, "Typist", "same content", 11)
+	handTyped := textMessage(testChatID, forwardingUserID+1, "Typist", "same content forwarded and typed", 11)
 	processForwardMessages(t, p, rec, forwarded, handTyped)
 
 	if len(rec.messages) != 1 {
@@ -185,7 +185,7 @@ func TestForwardedAndHandTypedTextShareKey(t *testing.T) {
 	if err := db.First(&record).Error; err != nil {
 		t.Fatalf("load record: %v", err)
 	}
-	if record.ContentKey != textKeyFor(p.dedupSecret, "same content") {
+	if record.ContentKey != textKeyFor(p.dedupSecret, "same content forwarded and typed") {
 		t.Errorf("ContentKey = %q, want hand-typed text key", record.ContentKey)
 	}
 }

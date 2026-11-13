@@ -13,7 +13,7 @@ import (
 	"mars-rescue-bot/internal/repo"
 )
 
-const citeText = "hello mars bot"
+const citeText = "hello mars bot please respond"
 
 type roleMembers struct {
 	role  telebot.MemberStatus
@@ -440,7 +440,7 @@ func TestCitationReplyAndQuote(t *testing.T) {
 		buf := captureDecisionLog(t, p)
 		rec := &replyRecorder{}
 		first := textMessage(testChatID, 8001, "Author", citeText, 10)
-		reply := textMessage(testChatID, 8002, "Replier", "a fresh comment here", 11)
+		reply := textMessage(testChatID, 8002, "Replier", "a fresh comment here today", 11)
 		reply.ReplyTo = first
 		reply.Quote = &telebot.TextQuote{Text: citeText, Manual: true}
 		processAll(t, p, rec, first, reply)
@@ -460,7 +460,7 @@ func TestCitationReplyAndQuote(t *testing.T) {
 		p, r, db := setupCitation(t, nil)
 		rec := &replyRecorder{}
 		first := textMessage(testChatID, 8001, "Author", citeText, 10)
-		reply := textMessage(testChatID, 8002, "Replier", "Hello, MARS bot", 11)
+		reply := textMessage(testChatID, 8002, "Replier", "Hello, MARS bot please respond", 11)
 		reply.ReplyTo = first
 		reply.Quote = &telebot.TextQuote{Text: citeText, Manual: true}
 		processAll(t, p, rec, first, reply)
@@ -480,10 +480,10 @@ func TestCitationReplyAndQuote(t *testing.T) {
 		p, _, _ := setupCitation(t, nil)
 		rec := &replyRecorder{}
 		bodyB := textMessage(testChatID, 8001, "Author", citeText, 10)
-		bodyA := textMessage(testChatID, 8003, "Other", "another topic entirely", 11)
+		bodyA := textMessage(testChatID, 8003, "Other", "another topic entirely for us", 11)
 		reply := textMessage(testChatID, 8002, "Replier", citeText, 12)
 		reply.ReplyTo = bodyA
-		reply.Quote = &telebot.TextQuote{Text: "another topic entirely", Manual: true}
+		reply.Quote = &telebot.TextQuote{Text: "another topic entirely for us", Manual: true}
 		processAll(t, p, rec, bodyB, bodyA, reply)
 		if len(rec.messages) != 1 {
 			t.Fatalf("replies = %#v, want the duplicate of B", rec.messages)

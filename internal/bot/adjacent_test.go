@@ -20,8 +20,8 @@ func TestAdjacentRepeatGapBoundary(t *testing.T) {
 		p.adjacentRepeatGap = AdjacentRepeatGap
 		rec := &replyRecorder{}
 
-		processAdjacentText(t, p, rec, "adjacent text", 10, 1)
-		processAdjacentText(t, p, rec, "adjacent text", 15, 2)
+		processAdjacentText(t, p, rec, "adjacent text still counts now", 10, 1)
+		processAdjacentText(t, p, rec, "adjacent text still counts now", 15, 2)
 
 		if len(rec.messages) != 0 {
 			t.Errorf("replies = %#v, want none for gap 5", rec.messages)
@@ -46,8 +46,8 @@ func TestAdjacentRepeatGapBoundary(t *testing.T) {
 		p.adjacentRepeatGap = AdjacentRepeatGap
 		rec := &replyRecorder{}
 
-		processAdjacentText(t, p, rec, "adjacent text", 10, 1)
-		processAdjacentText(t, p, rec, "adjacent text", 16, 2)
+		processAdjacentText(t, p, rec, "adjacent text still counts now", 10, 1)
+		processAdjacentText(t, p, rec, "adjacent text still counts now", 16, 2)
 
 		if len(rec.messages) != 1 {
 			t.Fatalf("replies = %#v, want 1 for gap 6", rec.messages)
@@ -73,7 +73,7 @@ func TestAdjacentRepeatLegacyNullLastMessageIDIsNotExempt(t *testing.T) {
 	p.adjacentRepeatGap = AdjacentRepeatGap
 	rec := &replyRecorder{}
 
-	key := textKeyFor(p.dedupSecret, "legacy adjacent")
+	key := textKeyFor(p.dedupSecret, "legacy adjacent message content here")
 	legacy := models.ForwardRecord{
 		ChatID:           testChatID,
 		ContentKey:       key,
@@ -84,7 +84,7 @@ func TestAdjacentRepeatLegacyNullLastMessageIDIsNotExempt(t *testing.T) {
 	if err := db.Create(&legacy).Error; err != nil {
 		t.Fatalf("create legacy record: %v", err)
 	}
-	processAdjacentText(t, p, rec, "legacy adjacent", 11, 2)
+	processAdjacentText(t, p, rec, "legacy adjacent message content here", 11, 2)
 
 	if len(rec.messages) != 1 {
 		t.Fatalf("replies = %#v, want 1 (NULL last_message_id is not exempt)", rec.messages)
@@ -107,7 +107,7 @@ func TestAdjacentRepeatChainCountsForLeaderboardWithoutAlerts(t *testing.T) {
 	rec := &replyRecorder{}
 
 	for i := 0; i < 10; i++ {
-		processAdjacentText(t, p, rec, "chain text go", 10+i, 1)
+		processAdjacentText(t, p, rec, "chain text go on and on", 10+i, 1)
 	}
 
 	if len(rec.messages) != 0 {
@@ -143,11 +143,11 @@ func TestAdjacentRepeatChainDoesNotFlipPairing(t *testing.T) {
 	rec := &replyRecorder{}
 
 	for i := 0; i < 10; i++ {
-		processAdjacentText(t, p, rec, "chain parity", 10+i, 1)
+		processAdjacentText(t, p, rec, "chain parity content stays here", 10+i, 1)
 	}
-	processAdjacentText(t, p, rec, "chain parity", 100, 2)
-	processAdjacentText(t, p, rec, "chain parity", 200, 2)
-	processAdjacentText(t, p, rec, "chain parity", 300, 2)
+	processAdjacentText(t, p, rec, "chain parity content stays here", 100, 2)
+	processAdjacentText(t, p, rec, "chain parity content stays here", 200, 2)
+	processAdjacentText(t, p, rec, "chain parity content stays here", 300, 2)
 
 	if len(rec.messages) != 2 {
 		t.Fatalf("replies = %#v, want alerts after the chain at msg 100 and 300", rec.messages)
