@@ -1,6 +1,6 @@
 # 火星救援 Bot
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: WTFPL](https://img.shields.io/badge/License-WTFPL-brightgreen.svg)](LICENSE)
 
 一个用 Go 编写的 Telegram 群聊搬石/抵消检测机器人：当群里反复出现同一内容时，它会发送一条“火星救援”提醒，并把重复发送者计入火星次数。次数只统计重复出现，同一条内容第一次出现不计入。项目使用 Go + GORM + SQLite，单实例即可运行。
 
@@ -45,4 +45,4 @@ Docker、Compose、数据卷和备份方式见 [部署](docs/deployment.md)；�
 
 ## 许可证
 
-本项目采用 [MIT 许可证](LICENSE)。
+本项目采用 [WTFPL 许可证](LICENSE)。
