@@ -748,6 +748,38 @@ func TestHYWSkipReasons(t *testing.T) {
 			},
 			want: "这类消息不会记录",
 		},
+		{
+			name: "exempt gif animation",
+			target: func() *telebot.Message {
+				msg := hywTextMessage(hywTestChatID, 1, "", 18)
+				msg.Animation = &telebot.Animation{File: telebot.File{UniqueID: "gif-animation"}}
+				msg.Caption = "a long caption that must not become a text content key"
+				return msg
+			},
+			want: "这类消息不会记录",
+		},
+		{
+			name: "exempt gif document",
+			target: func() *telebot.Message {
+				msg := hywTextMessage(hywTestChatID, 1, "", 19)
+				msg.Document = &telebot.Document{
+					File:     telebot.File{UniqueID: "gif-document"},
+					MIME:     "image/gif",
+					FileName: "loop.gif",
+				}
+				return msg
+			},
+			want: "这类消息不会记录",
+		},
+		{
+			name: "sticker stays unsupported",
+			target: func() *telebot.Message {
+				msg := hywTextMessage(hywTestChatID, 1, "", 20)
+				msg.Sticker = &telebot.Sticker{File: telebot.File{UniqueID: "sticker"}}
+				return msg
+			},
+			want: "这类消息不会记录",
+		},
 	}
 
 	for _, tt := range tests {

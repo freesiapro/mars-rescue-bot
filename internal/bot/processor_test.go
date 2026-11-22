@@ -1504,15 +1504,6 @@ func TestProcessorMediaDuplicateByFileUniqueID(t *testing.T) {
 			},
 		},
 		{
-			name:    "animation",
-			subject: "这个动图",
-			build: func(msgID int, userID int64, uniqueID string) *telebot.Message {
-				msg := textMessage(testChatID, userID, "A", "", msgID)
-				msg.Animation = &telebot.Animation{File: telebot.File{UniqueID: uniqueID}}
-				return msg
-			},
-		},
-		{
 			name:    "document",
 			subject: "这个文件",
 			build: func(msgID int, userID int64, uniqueID string) *telebot.Message {
@@ -1606,6 +1597,166 @@ func TestProcessorMediaSkipsMissingUniqueID(t *testing.T) {
 	}
 	if records != 0 {
 		t.Errorf("records = %d, want 0", records)
+	}
+}
+
+func TestProcessorGIFAndStickerAreExempt(t *testing.T) {
+	tests := []struct {
+		name  string
+		build func(msgID int, userID int64, uniqueID string) *telebot.Message
+	}{
+		{
+			name: "animation",
+			build: func(msgID int, userID int64, uniqueID string) *telebot.Message {
+				msg := textMessage(testChatID, userID, "A", "", msgID)
+				msg.Animation = &telebot.Animation{File: telebot.File{UniqueID: uniqueID}}
+				return msg
+			},
+		},
+		{
+			name: "document image gif",
+			build: func(msgID int, userID int64, uniqueID string) *telebot.Message {
+				msg := textMessage(testChatID, userID, "A", "", msgID)
+				msg.Document = &telebot.Document{
+					File:     telebot.File{UniqueID: uniqueID},
+					MIME:     "image/gif",
+					FileName: "loop.gif",
+				}
+				return msg
+			},
+		},
+		{
+			name: "document mp4 containing gif",
+			build: func(msgID int, userID int64, uniqueID string) *telebot.Message {
+				msg := textMessage(testChatID, userID, "A", "", msgID)
+				msg.Document = &telebot.Document{
+					File:     telebot.File{UniqueID: uniqueID},
+					MIME:     "video/mp4",
+					FileName: "LOOP.GIF",
+				}
+				return msg
+			},
+		},
+		{
+			name: "sticker",
+			build: func(msgID int, userID int64, uniqueID string) *telebot.Message {
+				msg := textMessage(testChatID, userID, "A", "", msgID)
+				msg.Sticker = &telebot.Sticker{File: telebot.File{UniqueID: uniqueID}}
+				return msg
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, _, db := setupProcessor(t)
+			buf := captureDecisionLog(t, p)
+			rec := &replyRecorder{}
+
+			for i := 0; i < 2; i++ {
+				msg := tt.build(20+i, int64(i+1), "same-exempt-unique-id")
+				msg.Caption = "a long caption that must not become a text content key"
+				if err := p.ProcessMessage(msg, "trace", rec.reply); err != nil {
+					t.Fatalf("ProcessMessage() error = %v", err)
+				}
+			}
+
+			if len(rec.messages) != 0 {
+				t.Errorf("replies = %#v, want none", rec.messages)
+			}
+			for _, count := range []struct {
+				name  string
+				model any
+			}{
+				{name: "records", model: &models.ForwardRecord{}},
+				{name: "logs", model: &models.ForwardLog{}},
+				{name: "user stats", model: &models.UserStats{}},
+			} {
+				var got int64
+				if err := db.Model(count.model).Count(&got).Error; err != nil {
+					t.Fatalf("count %s: %v", count.name, err)
+				}
+				if got != 0 {
+					t.Errorf("%s = %d, want 0", count.name, got)
+				}
+			}
+
+			lines := readDecisions(t, buf)
+			if len(lines) != 2 {
+				t.Fatalf("decision lines = %d, want 2", len(lines))
+			}
+			for _, line := range lines {
+				if line.Decision != DecisionUnsupportedType {
+					t.Errorf("decision = %q, want %q", line.Decision, DecisionUnsupportedType)
+				}
+				if line.KeyHash != "" {
+					t.Errorf("key_hash = %q, want empty", line.KeyHash)
+				}
+			}
+		})
+	}
+}
+
+func TestProcessorAnimationDoesNotHitLegacyAnimationKey(t *testing.T) {
+	p, _, db := setupProcessor(t)
+	legacy := models.ForwardRecord{
+		ChatID:           testChatID,
+		ContentKey:       "media:animation:legacy-gif",
+		ForwardCount:     4,
+		FirstTargetMsgID: 1,
+		FirstSenderID:    1,
+	}
+	if err := db.Create(&legacy).Error; err != nil {
+		t.Fatalf("seed legacy animation record: %v", err)
+	}
+
+	buf := captureDecisionLog(t, p)
+	rec := &replyRecorder{}
+	msg := textMessage(testChatID, 2, "B", "", 100)
+	msg.Animation = &telebot.Animation{File: telebot.File{UniqueID: "legacy-gif"}}
+	if err := p.ProcessMessage(msg, "trace", rec.reply); err != nil {
+		t.Fatalf("ProcessMessage() error = %v", err)
+	}
+
+	if len(rec.messages) != 0 {
+		t.Errorf("replies = %#v, want none", rec.messages)
+	}
+	var after models.ForwardRecord
+	if err := db.First(&after, legacy.ID).Error; err != nil {
+		t.Fatalf("load legacy record: %v", err)
+	}
+	if after.ForwardCount != legacy.ForwardCount {
+		t.Errorf("ForwardCount = %d, want unchanged %d", after.ForwardCount, legacy.ForwardCount)
+	}
+	if after.PendingPair != nil || after.LastOccurrenceMsgID != nil {
+		t.Errorf("legacy pairing state changed: pending=%v last=%v", after.PendingPair, after.LastOccurrenceMsgID)
+	}
+	for _, count := range []struct {
+		name  string
+		model any
+		want  int64
+	}{
+		{name: "records", model: &models.ForwardRecord{}, want: 1},
+		{name: "logs", model: &models.ForwardLog{}, want: 0},
+		{name: "user stats", model: &models.UserStats{}, want: 0},
+	} {
+		var got int64
+		if err := db.Model(count.model).Count(&got).Error; err != nil {
+			t.Fatalf("count %s: %v", count.name, err)
+		}
+		if got != count.want {
+			t.Errorf("%s = %d, want %d", count.name, got, count.want)
+		}
+	}
+	lines := readDecisions(t, buf)
+	if len(lines) != 1 {
+		t.Fatalf("decision lines = %d, want 1", len(lines))
+	}
+	if lines[0].Decision != DecisionUnsupportedType {
+		t.Errorf("decision = %q, want %q", lines[0].Decision, DecisionUnsupportedType)
+	}
+	if lines[0].KeyHash != "" {
+		t.Errorf("key_hash = %q, want empty", lines[0].KeyHash)
 	}
 }
 

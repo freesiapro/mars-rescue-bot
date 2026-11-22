@@ -20,6 +20,7 @@ type capturedDecision struct {
 	ChatID         int64    `json:"chat_id"`
 	MessageID      int      `json:"message_id"`
 	MsgType        string   `json:"msg_type"`
+	MIMEType       string   `json:"mime_type"`
 	Decision       string   `json:"decision"`
 	UserID         int64    `json:"user_id"`
 	OriginType     string   `json:"origin_type"`
@@ -602,6 +603,118 @@ func TestDecisionLogNeverContainsTextOrNames(t *testing.T) {
 		}
 		if lines[0].MsgType != "photo" {
 			t.Errorf("msg_type = %q, want photo", lines[0].MsgType)
+		}
+	})
+}
+
+func TestDecisionLogMIMETypeForDocumentAndAnimation(t *testing.T) {
+	t.Run("document keeps media behavior and logs mime", func(t *testing.T) {
+		p, _, _ := setupProcessor(t)
+		buf := captureDecisionLog(t, p)
+		replies := &replyRecorder{}
+
+		msg := textMessage(testChatID, 1, "A", "", 40)
+		msg.Document = &telebot.Document{
+			File:     telebot.File{UniqueID: "normal-document"},
+			MIME:     "video/mp4",
+			FileName: "clip.mp4",
+		}
+		if err := p.ProcessMessage(msg, "trace", replies.reply); err != nil {
+			t.Fatalf("ProcessMessage() error = %v", err)
+		}
+
+		lines := readDecisions(t, buf)
+		if len(lines) != 1 {
+			t.Fatalf("decision lines = %d, want 1", len(lines))
+		}
+		line := lines[0]
+		if line.MsgType != "document" {
+			t.Errorf("msg_type = %q, want document", line.MsgType)
+		}
+		if line.MIMEType != "video/mp4" {
+			t.Errorf("mime_type = %q, want video/mp4", line.MIMEType)
+		}
+		if line.Decision != DecisionPairedSilent {
+			t.Errorf("decision = %q, want %q", line.Decision, DecisionPairedSilent)
+		}
+		if line.KeyHash == "" {
+			t.Error("key_hash is empty, want normal document to remain media-keyed")
+		}
+	})
+
+	t.Run("animation priority over document", func(t *testing.T) {
+		p, _, _ := setupProcessor(t)
+		buf := captureDecisionLog(t, p)
+		replies := &replyRecorder{}
+
+		msg := textMessage(testChatID, 1, "A", "", 41)
+		msg.Animation = &telebot.Animation{
+			File: telebot.File{UniqueID: "gif-animation"},
+			MIME: "video/mp4",
+		}
+		msg.Document = &telebot.Document{
+			File:     telebot.File{UniqueID: "gif-document"},
+			MIME:     "image/gif",
+			FileName: "loop.gif",
+		}
+		if err := p.ProcessMessage(msg, "trace", replies.reply); err != nil {
+			t.Fatalf("ProcessMessage() error = %v", err)
+		}
+
+		lines := readDecisions(t, buf)
+		if len(lines) != 1 {
+			t.Fatalf("decision lines = %d, want 1", len(lines))
+		}
+		line := lines[0]
+		if line.MsgType != "animation" {
+			t.Errorf("msg_type = %q, want animation", line.MsgType)
+		}
+		if line.MIMEType != "video/mp4" {
+			t.Errorf("mime_type = %q, want animation MIME video/mp4", line.MIMEType)
+		}
+		if line.Decision != DecisionUnsupportedType {
+			t.Errorf("decision = %q, want %q", line.Decision, DecisionUnsupportedType)
+		}
+		if line.KeyHash != "" {
+			t.Errorf("key_hash = %q, want empty", line.KeyHash)
+		}
+	})
+
+	t.Run("animation falls back to document mime", func(t *testing.T) {
+		p, _, _ := setupProcessor(t)
+		buf := captureDecisionLog(t, p)
+		replies := &replyRecorder{}
+
+		msg := textMessage(testChatID, 1, "A", "", 42)
+		msg.Animation = &telebot.Animation{File: telebot.File{UniqueID: "gif-animation"}}
+		msg.Document = &telebot.Document{MIME: "image/gif"}
+		if err := p.ProcessMessage(msg, "trace", replies.reply); err != nil {
+			t.Fatalf("ProcessMessage() error = %v", err)
+		}
+
+		lines := readDecisions(t, buf)
+		if len(lines) != 1 {
+			t.Fatalf("decision lines = %d, want 1", len(lines))
+		}
+		if lines[0].MIMEType != "image/gif" {
+			t.Errorf("mime_type = %q, want document fallback image/gif", lines[0].MIMEType)
+		}
+	})
+
+	t.Run("missing mime is logged as empty", func(t *testing.T) {
+		p, _, _ := setupProcessor(t)
+		buf := captureDecisionLog(t, p)
+		replies := &replyRecorder{}
+
+		msg := textMessage(testChatID, 1, "A", "", 43)
+		msg.Document = &telebot.Document{File: telebot.File{UniqueID: "document-without-mime"}}
+		if err := p.ProcessMessage(msg, "trace", replies.reply); err != nil {
+			t.Fatalf("ProcessMessage() error = %v", err)
+		}
+
+		out := buf.String()
+		if !strings.Contains(out, `"mime_type":""`) {
+			t.Errorf("log output = %s, want an empty mime_type field", out)
 		}
 	})
 }

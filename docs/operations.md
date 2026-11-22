@@ -8,13 +8,13 @@
 
 - **文本内容键**：`HMAC-SHA256(DEDUP_SECRET, 归一化后的文本)` 的十六进制结果，不保存原文或归一化后的文本。富文本消息先提取去除格式后的纯文本，再按同一流程计算。未设置 `DEDUP_SECRET` 时回退使用 `BOT_TOKEN` 作为密钥。
 - **链接内容键**：纯链接消息使用 `link:v1:` 前缀。链接按出现顺序、每个只做 scheme/host 小写后，以换行连接，再计算 `HMAC-SHA256(DEDUP_SECRET, ...)`；数据库和日志都不保存链接原文。
-- **Telegram ID**：群 ID、用户 ID、消息 ID；频道转发的内容键中还包含原频道 ID 与原消息 ID；媒体内容键中包含 `file_unique_id`。内容记录还保存最近一次出现的消息 ID，仅用于识别连续刷屏。每条出现流水还保存发送者 ID，以及该消息的 Telegram `date`（`forward_logs.message_unix`，Unix 秒，可空）。升级前的旧流水此列为 NULL。只存数字，不存原文，用来判断后来的转发是不是本群这一条。
+- **Telegram ID**：群 ID、用户 ID、消息 ID；频道转发的内容键中还包含原频道 ID 与原消息 ID；参与检测的媒体内容键中包含 `file_unique_id`。GIF 动图与贴纸一样整条豁免，不保存内容键或 `file_unique_id`。内容记录还保存最近一次出现的消息 ID，仅用于识别连续刷屏。每条出现流水还保存发送者 ID，以及该消息的 Telegram `date`（`forward_logs.message_unix`，Unix 秒，可空）。升级前的旧流水此列为 NULL。只存数字，不存原文，用来判断后来的转发是不是本群这一条。
 - **排行榜数据**：只保存用户 ID 与出现流水（用于计算重复出现次数，首次出现不计入）。姓名和 username 不写入数据库；展示排行榜、首发者时使用进程内缓存，未命中再调用 Telegram `getChatMember`，查询失败显示“用户 &lt;id&gt;”。升级时会清空旧版本 `user_stats` 中已经保存的 `username`/`first_name`，列本身保留以兼容旧数据库。
 - **群设置**：群 ID、开关、冷却秒数、操作者用户 ID。
 - **忽略名单**：群 ID、被忽略用户 ID、操作者用户 ID、添加时间。
 - **时间戳**：记录的创建与更新时间。
 
-不保存：消息原文、链接原文、媒体文件内容、文件下载链接。媒体消息只保存不可逆的 `file_unique_id` 用于去重；纯链接消息只保存 HMAC 内容键。机器人不保存原始消息 JSON；`present_fields` / `rich_block_types` 来自 telebot 已解析的 `Message` 结构，只包含字段名和块类型，不包含字段值或正文。
+不保存：消息原文、链接原文、媒体文件内容、文件下载链接。参与检测的媒体消息只保存不可逆的 `file_unique_id` 用于去重；GIF 动图整条豁免，不保存；纯链接消息只保存 HMAC 内容键。机器人不保存原始消息 JSON；`present_fields` / `rich_block_types` 来自 telebot 已解析的 `Message` 结构，只包含字段名和块类型，不包含字段值或正文。
 
 运行日志以 JSON 输出到 stdout，包含群 ID、用户 ID、消息 ID、消息类型等元数据，不包含用户名或消息正文。`收到消息` 日志对转发额外输出 `forward_origin`（`user`、`chat`、`channel`、`hidden_user` 或空）、`has_sender_name`（布尔值，仅表示有没有姓名，不输出姓名本身）；有原发送者 ID 时输出 `origin_user_id`，有原发送时间时输出 `origin_date`（Unix 秒）。
 
@@ -26,7 +26,8 @@
 | --- | --- |
 | `chat_id` | 群 ID；缺少 chat 时为 0 |
 | `message_id` | 消息 ID；缺少消息时为 0 |
-| `msg_type` | `channel_forward`、`rich_message`、`text`、`link`、`photo`、`video`、`animation`、`document`、`audio`、`sticker`、`voice`、`location`、`contact`、`caption` 或 `unknown`；频道转发优先于原始内容类型 |
+| `msg_type` | `channel_forward`、`rich_message`、`text`、`link`、`photo`、`video`、`animation`、`document`、`audio`、`sticker`、`voice`、`location`、`contact`、`caption` 或 `unknown`；频道转发优先于原始内容类型；同时带 `animation` 和 `document` 字段时按 `animation` |
+| `mime_type` | 可选。消息带 `animation` 或 `document` 字段时输出 Telegram 提供的 MIME（字符串，可能为空）；`animation` 优先，缺失时回退 `document`。只读元数据，不读取文件内容 |
 | `decision` | 本次处理结果，取值见下表 |
 | `user_id` | 发送者 ID，与 `收到消息` 日志一致；缺少发送者时为 0 |
 | `origin_type` | 可选。消息带新版 `forward_origin` 时输出来源类型：`user`、`chat`、`channel` 或 `hidden_user` |
@@ -56,7 +57,7 @@
 | `no_content` | 没有可检测内容：空文本、纯空白、归一化后为空的纯表情/符号，或支持的媒体缺少 `file_unique_id`。日志会附带 `present_fields` |
 | `private_chat` | 私聊消息，直接忽略 |
 | `command` | 以 `/` 开头的命令文本 |
-| `unsupported_type` | 音频、贴纸、语音、位置、联系人，或没有任何可提取文本的富文本消息等未参与检测的内容。日志会附带 `present_fields`，富文本消息还会附带 `rich_block_types` |
+| `unsupported_type` | 音频、贴纸、GIF 动图（`Animation`、`image/gif` 或文件名 `.gif` 的 document）、语音、位置、联系人，或没有任何可提取文本的富文本消息等未参与检测的内容。日志会附带 `present_fields`，富文本消息还会附带 `rich_block_types` |
 | `no_message` / `no_chat` / `no_sender` | Telegram 更新缺少消息、chat 或发送者，安全跳过 |
 | `processing_error` | 读取设置、忽略名单或写入去重数据时出错；原有错误日志仍会输出 |
 

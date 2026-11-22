@@ -105,6 +105,11 @@ func (d *decisionRecorder) log() {
 		"decision", d.decision,
 		"user_id", userID,
 	}
+	// document / animation 的 MIME 只来自 Telegram 元数据，不读取文件内容。
+	// 即使 MIME 为空也输出字段，便于区分“没有带 MIME”和“旧版本没有记录”。
+	if d.msg != nil && (d.msg.Animation != nil || d.msg.Document != nil) {
+		attrs = append(attrs, "mime_type", messageMIMEType(d.msg))
+	}
 	// Origin 存在时记录来源类型与原发送时间，便于排查转发为什么被或没有被豁免。
 	// 只写类型和 Unix 秒，不写姓名或消息内容。
 	if d.msg != nil && d.msg.Origin != nil {
@@ -187,6 +192,24 @@ func messageType(msg *telebot.Message) string {
 	default:
 		return "unknown"
 	}
+}
+
+// messageMIMEType 返回 document / animation 的 MIME，供决策日志排查。
+// Animation 优先于 Document，与 messageType 的优先级一致；Animation 没有
+// MIME 时回退到 Document，避免同时带两个字段的 GIF 丢失唯一可用的信息。
+func messageMIMEType(msg *telebot.Message) string {
+	if msg == nil {
+		return ""
+	}
+	if msg.Animation != nil {
+		if mime := strings.TrimSpace(msg.Animation.MIME); mime != "" {
+			return mime
+		}
+	}
+	if msg.Document != nil {
+		return strings.TrimSpace(msg.Document.MIME)
+	}
+	return ""
 }
 
 // contentKeyHash 生成可安全写入日志的键指纹。

@@ -68,6 +68,10 @@ func LogMessageReceived(traceID string, msg *telebot.Message) {
 		msgType = "video"
 	case msg.Audio != nil:
 		msgType = "audio"
+	case msg.Animation != nil:
+		// animation 优先于 document：GIF 可能同时带 animation 和 document
+		// 字段，判定阶段按 animation 处理，接收日志也应保持一致。
+		msgType = "animation"
 	case msg.Document != nil:
 		msgType = "document"
 	case msg.Sticker != nil:
