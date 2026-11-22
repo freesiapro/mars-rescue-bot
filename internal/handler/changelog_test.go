@@ -161,9 +161,9 @@ func TestFormatChangelogChunks(t *testing.T) {
 		}
 		for _, wantText := range []string{
 			"📣 最近 3 次更新",
+			"2026-11-22 · GIF 动图和贴纸一样不参与检测",
 			"2026-11-13 · 英文短句少参与检测，中文规则不变",
 			"2026-11-12 · 隐藏来源的本群消息转发也能识别",
-			"2026-11-10 · 新增 /changelog 命令",
 		} {
 			if !strings.Contains(got, wantText) {
 				t.Errorf("formatChangelogChunks(3) = %q, want containing %q", got, wantText)
@@ -199,8 +199,8 @@ func TestFormatChangelogChunks(t *testing.T) {
 		}
 		for _, wantText := range []string{
 			"一次最多显示 10 条，以下为最近的更新：",
-			"📣 最近 8 次更新",
-			"2026-11-13 · 英文短句少参与检测，中文规则不变",
+			"📣 最近 9 次更新",
+			"2026-11-22 · GIF 动图和贴纸一样不参与检测",
 			"2026-11-04 · 富文本、连续刷屏、普通转发与 /hyw",
 		} {
 			if !strings.Contains(got, wantText) {
@@ -319,25 +319,25 @@ func TestHandleChangelog(t *testing.T) {
 		{
 			name:       "default",
 			args:       nil,
-			wantText:   []string{"📣 最近 1 次更新", "2026-11-13 · 英文短句少参与检测，中文规则不变", "英文消息现在按单词数计算：大约 5 个英文单词才参与重复检测，两三个单词的短句会被跳过。"},
-			absentText: []string{"2026-11-12", "一次最多显示 10 条，以下为最近的更新："},
+			wantText:   []string{"📣 最近 1 次更新", "2026-11-22 · GIF 动图和贴纸一样不参与检测", "GIF 动图现在和贴纸一样，不参与重复检测；发多少次都不会提醒，也不会计入火星次数。"},
+			absentText: []string{"2026-11-13", "一次最多显示 10 条，以下为最近的更新："},
 		},
 		{
 			name:       "three",
 			args:       []string{"3"},
-			wantText:   []string{"📣 最近 3 次更新", "2026-11-13", "2026-11-12", "2026-11-10"},
+			wantText:   []string{"📣 最近 3 次更新", "2026-11-22", "2026-11-13", "2026-11-12"},
 			absentText: []string{"2026-11-09", "一次最多显示 10 条，以下为最近的更新："},
 		},
 		{
 			name:       "exact max has no cap notice",
 			args:       []string{"10"},
-			wantText:   []string{"📣 最近 8 次更新", "2026-11-04"},
+			wantText:   []string{"📣 最近 9 次更新", "2026-11-04"},
 			absentText: []string{"一次最多显示 10 条，以下为最近的更新："},
 		},
 		{
 			name:     "over max",
 			args:     []string{"99"},
-			wantText: []string{"一次最多显示 10 条，以下为最近的更新：", "📣 最近 8 次更新"},
+			wantText: []string{"一次最多显示 10 条，以下为最近的更新：", "📣 最近 9 次更新"},
 		},
 		{
 			name:        "invalid",

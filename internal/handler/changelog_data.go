@@ -4,6 +4,14 @@ package handler
 // 日期使用 YYYY-MM-DD，内容面向群友，避免内部实现术语。
 var changelogEntries = []ChangelogEntry{
 	{
+		Date:  "2026-11-22",
+		Title: "GIF 动图和贴纸一样不参与检测",
+		Bullets: []string{
+			"GIF 动图现在和贴纸一样，不参与重复检测；发多少次都不会提醒，也不会计入火星次数。",
+			"带说明文字的 GIF 动图同样不记录；普通图片、视频和文件仍按原有规则检测。",
+		},
+	},
+	{
 		Date:  "2026-11-13",
 		Title: "英文短句少参与检测，中文规则不变",
 		Bullets: []string{
