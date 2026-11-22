@@ -28,7 +28,8 @@ func formatPrivacy(retentionDays int) string {
 
 <b>会保存</b>
 • 文字：归一化后的 HMAC-SHA256，不保存原文
-• 图片、视频、动图、文件：Telegram 的 <code>file_unique_id</code>，不下载文件
+• 图片、视频、文件：Telegram 的 <code>file_unique_id</code>，不下载文件
+• GIF 动图：与贴纸一样整条豁免，不记录
 • 群、用户、消息的数字 ID；频道转发还包括原频道与原消息 ID
 • 火星次数：用户 ID 与重复出现次数，不保存用户名或姓名
 • 群设置、忽略名单与时间

@@ -13,7 +13,7 @@ type MessageContent struct {
 	Key          string
 	Hash         string
 	Kind         string // channel / media / link / text，用于提醒文案和日志
-	KeyType      string // 展示用：文本、链接、图片、视频、动图、文件、频道转发
+	KeyType      string // 展示用：文本、链接、图片、视频、文件、频道转发
 	MediaSubject string
 	SkipDecision string
 	// CitationReason 说明引用豁免的判定结果：命中时是豁免原因，
@@ -61,6 +61,13 @@ func fingerprintMessage(msg *telebot.Message, secret string) MessageContent {
 		return MessageContent{SkipDecision: DecisionMentionOnly}
 	}
 
+	// GIF 动图与贴纸一致，完全不参与检测：没有内容键，因此不写记录、
+	// 流水和排行榜，只留下 unsupported_type 决策日志。
+	// 放在频道转发之前，保证频道转发的动图也不参与。
+	if isExemptGIF(msg) {
+		return MessageContent{SkipDecision: DecisionUnsupportedType}
+	}
+
 	if key, ok := channelForwardKey(msg); ok {
 		return MessageContent{
 			Key:     key,
@@ -79,7 +86,7 @@ func fingerprintMessage(msg *telebot.Message, secret string) MessageContent {
 		}
 	}
 	// 支持的媒体类型却拿不到 file_unique_id：有内容，但没有可用的去重键。
-	if msg.Photo != nil || msg.Video != nil || msg.Animation != nil || msg.Document != nil {
+	if msg.Photo != nil || msg.Video != nil || msg.Document != nil {
 		return MessageContent{SkipDecision: DecisionNoContent}
 	}
 	// 音频不在支持范围；没有文本时按内容判断是未支持类型还是空消息。
@@ -135,11 +142,41 @@ func mediaKeyType(msg *telebot.Message) string {
 		return "图片"
 	case msg.Video != nil:
 		return "视频"
-	case msg.Animation != nil:
-		return "动图"
 	case msg.Document != nil:
 		return "文件"
 	default:
 		return "媒体"
 	}
+}
+
+// isExemptGIF 报告消息是否是应完全豁免的 GIF 动图。
+//
+// Telegram 的 Message.Animation 一定按动图解析。用户以文件发送的 GIF 通常
+// 落在 Document 里，MIME 为 image/gif；部分客户端可能标成 video/mp4，此时
+// 只能靠 .gif 文件名识别。普通 Video 消息，以及没有 .gif 文件名的
+// video/mp4 文档，无法与普通短视频可靠区分，不能豁免，否则会把真实视频
+// 排除在去重之外。
+func isExemptGIF(msg *telebot.Message) bool {
+	if msg == nil {
+		return false
+	}
+	if msg.Animation != nil {
+		return true
+	}
+	if msg.Document == nil {
+		return false
+	}
+	return isGIFMIME(msg.Document.MIME) || hasGIFExtension(msg.Document.FileName)
+}
+
+func isGIFMIME(value string) bool {
+	value = strings.TrimSpace(value)
+	if i := strings.IndexByte(value, ';'); i >= 0 {
+		value = strings.TrimSpace(value[:i])
+	}
+	return strings.EqualFold(value, "image/gif")
+}
+
+func hasGIFExtension(name string) bool {
+	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(name)), ".gif")
 }

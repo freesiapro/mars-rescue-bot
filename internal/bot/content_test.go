@@ -190,6 +190,168 @@ func TestAnalyzeMessageContentMediaCaptionStaysMediaKeyed(t *testing.T) {
 	}
 }
 
+func TestAnalyzeMessageContentExemptsGIFAnimations(t *testing.T) {
+	caption := "a long caption that must not become a text content key"
+	tests := []struct {
+		name string
+		msg  *telebot.Message
+	}{
+		{
+			name: "animation",
+			msg: func() *telebot.Message {
+				msg := textMessage(testChatID, 1, "A", "", 10)
+				msg.Animation = &telebot.Animation{File: telebot.File{UniqueID: "gif-unique"}}
+				return msg
+			}(),
+		},
+		{
+			name: "animation without unique id",
+			msg: func() *telebot.Message {
+				msg := textMessage(testChatID, 1, "A", "", 11)
+				msg.Animation = &telebot.Animation{}
+				return msg
+			}(),
+		},
+		{
+			name: "channel forward animation",
+			msg: func() *telebot.Message {
+				msg := textMessage(testChatID, 1, "A", "", 12)
+				msg.Animation = &telebot.Animation{File: telebot.File{UniqueID: "gif-unique"}}
+				msg.Origin = &telebot.MessageOrigin{
+					Type:      "channel",
+					Chat:      &telebot.Chat{ID: -1001234500000, Type: telebot.ChatChannel},
+					MessageID: 9201,
+				}
+				return msg
+			}(),
+		},
+		{
+			name: "document image gif",
+			msg: func() *telebot.Message {
+				msg := textMessage(testChatID, 1, "A", "", 13)
+				msg.Document = &telebot.Document{
+					File:     telebot.File{UniqueID: "gif-file-unique"},
+					MIME:     "image/gif",
+					FileName: "loop.gif",
+				}
+				return msg
+			}(),
+		},
+		{
+			name: "document image gif with mime parameters",
+			msg: func() *telebot.Message {
+				msg := textMessage(testChatID, 1, "A", "", 14)
+				msg.Document = &telebot.Document{
+					File: telebot.File{UniqueID: "gif-file-unique"},
+					MIME: " image/GIF ; charset=binary",
+				}
+				return msg
+			}(),
+		},
+		{
+			name: "document mp4 with gif filename",
+			msg: func() *telebot.Message {
+				msg := textMessage(testChatID, 1, "A", "", 15)
+				msg.Document = &telebot.Document{
+					File:     telebot.File{UniqueID: "gif-as-mp4-unique"},
+					MIME:     "video/mp4",
+					FileName: "LOOP.GIF",
+				}
+				return msg
+			}(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.msg.Caption = caption
+			content := AnalyzeMessageContent(tt.msg, contentTestSecret)
+			if content.Key != "" {
+				t.Errorf("key = %q, want empty", content.Key)
+			}
+			if content.SkipDecision != DecisionUnsupportedType {
+				t.Errorf("decision = %q, want %q", content.SkipDecision, DecisionUnsupportedType)
+			}
+		})
+	}
+}
+
+func TestAnalyzeMessageContentNormalMediaStillKeyed(t *testing.T) {
+	caption := "caption must stay out of the media key"
+	tests := []struct {
+		name    string
+		msg     *telebot.Message
+		wantKey string
+	}{
+		{
+			name: "photo",
+			msg: func() *telebot.Message {
+				msg := textMessage(testChatID, 1, "A", "", 20)
+				msg.Photo = &telebot.Photo{File: telebot.File{UniqueID: "photo-unique"}}
+				return msg
+			}(),
+			wantKey: "media:photo:photo-unique",
+		},
+		{
+			name: "video",
+			msg: func() *telebot.Message {
+				msg := textMessage(testChatID, 1, "A", "", 21)
+				msg.Video = &telebot.Video{File: telebot.File{UniqueID: "video-unique"}}
+				return msg
+			}(),
+			wantKey: "media:video:video-unique",
+		},
+		{
+			name: "document mp4",
+			msg: func() *telebot.Message {
+				msg := textMessage(testChatID, 1, "A", "", 22)
+				msg.Document = &telebot.Document{
+					File:     telebot.File{UniqueID: "document-unique"},
+					MIME:     "video/mp4",
+					FileName: "clip.mp4",
+				}
+				return msg
+			}(),
+			wantKey: "media:document:document-unique",
+		},
+		{
+			name: "document without gif markers",
+			msg: func() *telebot.Message {
+				msg := textMessage(testChatID, 1, "A", "", 23)
+				msg.Document = &telebot.Document{File: telebot.File{UniqueID: "plain-document-unique"}}
+				return msg
+			}(),
+			wantKey: "media:document:plain-document-unique",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.msg.Caption = caption
+			content := AnalyzeMessageContent(tt.msg, contentTestSecret)
+			if content.Key != tt.wantKey {
+				t.Errorf("key = %q, want %q", content.Key, tt.wantKey)
+			}
+			if content.Kind != "media" || content.SkipDecision != "" {
+				t.Errorf("content = %+v, want media with no skip decision", content)
+			}
+		})
+	}
+}
+
+func TestAnalyzeMessageContentStickerRemainsUnsupported(t *testing.T) {
+	msg := textMessage(testChatID, 1, "A", "", 24)
+	msg.Sticker = &telebot.Sticker{File: telebot.File{UniqueID: "sticker-unique"}}
+
+	content := AnalyzeMessageContent(msg, contentTestSecret)
+	if content.Key != "" {
+		t.Errorf("key = %q, want empty", content.Key)
+	}
+	if content.SkipDecision != DecisionUnsupportedType {
+		t.Errorf("decision = %q, want %q", content.SkipDecision, DecisionUnsupportedType)
+	}
+}
+
 func TestAnalyzeMessageContentRichMessageWithoutText(t *testing.T) {
 	rich := textMessage(testChatID, 1, "A", "", 10)
 	rich.RichMessage = &telebot.RichMessage{

@@ -107,6 +107,48 @@ func TestLogMessageReceivedOriginUserID(t *testing.T) {
 	}
 }
 
+func TestLogMessageReceivedAnimationPriority(t *testing.T) {
+	var buf bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(old) })
+
+	LogMessageReceived("trace-animation", &telebot.Message{
+		ID:        46,
+		Sender:    &telebot.User{ID: 11, FirstName: "C"},
+		Chat:      &telebot.Chat{ID: -100, Type: telebot.ChatSuperGroup},
+		Animation: &telebot.Animation{File: telebot.File{UniqueID: "gif-unique"}},
+		Document:  &telebot.Document{File: telebot.File{UniqueID: "document-unique"}},
+	})
+
+	out := buf.String()
+	if !strings.Contains(out, `"msg_type":"animation"`) {
+		t.Errorf("log output = %s, want msg_type animation", out)
+	}
+	if strings.Contains(out, `"msg_type":"document"`) {
+		t.Errorf("log output = %s, want document not to take priority", out)
+	}
+}
+
+func TestLogMessageReceivedDocumentWithoutAnimation(t *testing.T) {
+	var buf bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(old) })
+
+	LogMessageReceived("trace-document", &telebot.Message{
+		ID:       47,
+		Sender:   &telebot.User{ID: 12, FirstName: "D"},
+		Chat:     &telebot.Chat{ID: -100, Type: telebot.ChatSuperGroup},
+		Document: &telebot.Document{File: telebot.File{UniqueID: "document-unique"}},
+	})
+
+	out := buf.String()
+	if !strings.Contains(out, `"msg_type":"document"`) {
+		t.Errorf("log output = %s, want msg_type document", out)
+	}
+}
+
 func TestLogMessageReceivedRecognizesRichMessage(t *testing.T) {
 	var buf bytes.Buffer
 	old := slog.Default()
